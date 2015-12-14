@@ -175,13 +175,6 @@ try:
 except ImportError:
     HAS_BOTO3 = False
 
-def cluster_exists(dbname, check_mode):
-    try:
-        
-    
-
-
-
 def main():
     argument_spec = ec2_argument_spec()
     argument_spec.update(dict(
