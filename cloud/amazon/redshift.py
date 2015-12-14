@@ -158,6 +158,16 @@ options:
             - Comment associated with the zone
         required: false
         default: ''
+    skip_final_cluster_snapshot:
+        description:
+            - During deletion: if false, save a final snapshot of the cluster to final_cluster_snapshot_id before deleting.
+        required: false
+        default: false
+    final_cluster_snapshot_id:
+        description:
+            - A string identifier for a cluster snapshot taken when the cluster is deleted. Required on deletion if skip_final_cluster_snapshot is false
+        required: false
+        default: null
 extends_documentation_fragment:
     - aws
     - ec2
@@ -174,56 +184,92 @@ try:
     HAS_BOTO3 = True
 except ImportError:
     HAS_BOTO3 = False
+try:
+    import botocore.exceptions
+    HAS_BOTO_EXCEPTIONS = True
+except ImportError:
+    HAS_BOTO_EXCEPTIONS = False
 
-def cluster_exists(dbname, check_mode):
-    try:
-        
-    
+def validate_parameters(required_params, valid_params, module):
+    command = module.params.get('command')
+    for v in required_params:
+        if not module.params.get(v):
+            module.fail_json(msg="Parameter %s required for %s command" % (v, command))
+    for (k, v) in module.params.items():
+        if k not in required_params:
+            if k not in valid_params:
+                module.fail_json(msg="Parameter %s is not valid for %s command" % (k, command))
 
-
-
-def main():
-    argument_spec = ec2_argument_spec()
-    argument_spec.update(dict(
-            command               = dict(choices=['create', 'replicate', 'delete', 'facts', 'modify', 'promote', 'snapshot', 'reboot', 'restore'], required=True),
-            name                  = dict(required=True, aliases=['cluster_identifier', 'cluster_id']),
-            db_name               = dict(default='dev', required=False),
-            cluster_type          = dict(default='multi-node', choices=['single-node','multi-node']),
-            node_type             = dict(default='dc1.large', choices=['ds1.xlarge', 'ds1.8xlarge', 'ds2.xlarge', 'ds2.8xlarge', 'dc1.large', 'dc1.8xlarge']),
-            username              = dict(default='admin'),
-            password              = dict(required=True),
-            vpc_security_groups   = dict(required=False, aliases=['vpc_security_group_ids']),
-            subnet                = dict(required=False, aliases=['cluster_subnet_group_name']),
-            zone                  = dict(aliases=['aws_zone', 'ec2_zone', 'availability_zone']),
-            maint_window          = dict(required=False, aliases=['maintenance_window', 'preferred_maintenance_window']),
-            parameter_group       = dict(required=False, aliases=['cluster_parameter_group_name']),
-            backup_retention      = dict(required=False, type='int', default=1, aliases=['automated_snapshot_retention', 'automated_snapshot_retention_period']),
-            db_port               = dict(required=False, type='int', default=5439, aliases=['port']),
-            cluster_version       = dict(required=False, default='1.0', aliases=['engine_version']),
-            allow_version_upgrade = dict(required=False, type='bool', default=False),
-            num_nodes             = dict(required=False, type='int', default=1, aliases=['number_of_nodes']),
-            wait                  = dict(type='bool', default=False),
-            wait_timeout          = dict(type='int', default=900),
-            public                = dict(type='bool', default=False, aliases=['publicly_accessible']),
-            encrypted             = dict(type='bool', default=False),
-            tags                  = dict(type='dict', required=False)
-## TODO:
-## HsmClientCertificateIdentifier='string',
-## HsmConfigurationIdentifier='string',
-## ElasticIp='string',
-        )
-    )
-    module = AnsibleModule(argument_spec=argument_spec, supports_check_mode=True)
-        
-    if not HAS_BOTO3:
-        module.fail_json(msg='boto3 required for this module')
-    
-    DBName = module.params.get('db_name')
+def _describe_cluster(module, conn):
     ClusterIdentifier = module.params.get('name')
-    ClusterType = module.params.get('cluster_type')
+    if not ClusterIdentifier:
+        return None
+    params = dict(
+        ClusterIdentifier = ClusterIdentifier
+        )
+    cluster_facts = None
+    try:
+        cluster_facts = conn.describe_clusters(**params)
+    except botocore.exceptions.ClientError, e:
+        if 'ClusterNotFound' in e:
+            return None
+
+    if not cluster_facts:
+        return None
+    if 'Clusters' not in cluster_facts:
+        return None
+    if not cluster_facts['Clusters']:
+        return None
+    return cluster_facts['Clusters'][0]
+
+def create_cluster(module, conn):
+    required_params = [
+        'name',
+        'node_type',
+        'username',
+        'password',
+        ]
+    valid_params = [
+        'db_name',
+        'cluster_type',
+        'cluster_security_groups',
+        'vpc_security_groups',
+        'subnet',
+        'zone',
+        'maint_window',
+        'parameter_group',
+        'backup_retention',
+        'db_port',
+        'cluster_version',
+        'allow_version_upgrade',
+        'num_nodes',
+        'public',
+        'encrypted',
+        'hsm_client_cert',
+        'hsm_configuration_id',
+        'elastic_ip',
+        'kms_key_id',
+        'tags',
+        'wait',
+        'wait_timeout',
+        ]
+    validate_parameters(required_params, valid_params, module)
+
+    cluster_facts = _describe_cluster(module, conn)
+
+    if cluster_facts:
+        module.exit_json(changed=False)
+
+    if module.check_mode:
+        module.exit_json(changed=True)
+
+    ClusterIdentifier = module.params.get('name')
     NodeType = module.params.get('node_type')
     MasterUsername = module.params.get('username')
     MasterUserPassword = module.params.get('password')
+    DBName = module.params.get('db_name')
+    ClusterType = module.params.get('cluster_type')
+    ClusterSecurityGroups = module.params.get('cluster_security_groups'),
     VpcSecurityGroupIds = module.params.get('vpc_security_groups')
     ClusterSubnetGroupName = module.params.get('subnet')
     AvailabilityZone = module.params.get('zone')
@@ -235,65 +281,190 @@ def main():
     NumberOfNodes = module.params.get('num_nodes')
     PubliclyAccessible = module.params.get('public')
     Encrypted = module.params.get('encrypted')
+    HSMClientCertificateIdentifier = module.params.get('hsm_client_cert')
+    HSMConfigurationIdentifier = module.params.get('hsm_configuration_id')
+    ElasticIp = module.params.get('elastic_ip')
     Tags = module.params.get('tags')
-    
-    client = boto3.client('redshift')
-    
-    if module.check_mode:
-        # Check if any changes would be made but don't actually make those changes
-        module.exit_json(changed=check_if_system_state_would_be_changed())
-        
-    #TODO: make idempotent
-    # check for existance of cluster with name DBName
-    
-    response = client.create_cluster(
-      DBName=DBName,
-      ClusterIdentifier=ClusterIdentifier,
-      ClusterType=ClusterType,
-      NodeType=NodeType,
-      MasterUsername=MasterUsername,
-      MasterUserPassword=MasterUserPassword,
-      VpcSecurityGroupIds=[
-          VpcSecurityGroupIds
-      ],
-      ClusterSubnetGroupName=ClusterSubnetGroupName,
-      AvailabilityZone=AvailabilityZone,
-      ClusterParameterGroupName=ClusterParameterGroupName,
-      AutomatedSnapshotRetentionPeriod=AutomatedSnapshotRetentionPeriod,
-      Port=Port,
-      ClusterVersion=ClusterVersion,
-      AllowVersionUpgrade=AllowVersionUpgrade,
-      NumberOfNodes=NumberOfNodes,
-      PubliclyAccessible=PubliclyAccessible,
-      Encrypted=Encrypted,
-      Tags=Tags
-      )
-    
+    KMSKeyId = module.params.get('kms_key_id')
+
+    params = dict(
+        ClusterIdentifier = ClusterIdentifier,
+        NodeType = NodeType,
+        MasterUsername = MasterUsername,
+        MasterUserPassword = MasterUserPassword,
+        )
+    opt_params = dict(
+        DBName = DBName,
+        ClusterType = ClusterType,
+        ClusterSecurityGroups = ClusterSecurityGroups,
+        VpcSecurityGroupIds = VpcSecurityGroupIds,
+        ClusterSubnetGroupName = ClusterSubnetGroupName,
+        AvailabilityZone = AvailabilityZone,
+        ClusterParameterGroupName = ClusterParameterGroupName,
+        AutomatedSnapshotRetentionPeriod = AutomatedSnapshotRetentionPeriod,
+        Port = Port,
+        ClusterVersion = ClusterVersion,
+        AllowVersionUpgrade = AllowVersionUpgrade,
+        NumberOfNodes = NumberOfNodes,
+        PubliclyAccessible = PubliclyAccessible,
+        Encrypted = Encrypted,
+        Tags = Tags
+        )
+
+    # Don't send parameters without values
+    for k,v in opt_params.items():
+        if v is None:
+            del opt_params[k]
+
+    params.update(opt_params)
+
+    response = client.create_cluster(**params)
+
     if (response['ResponseMetadata']['HTTPStatusCode'] != 200):
         module.fail_json(msg='create_cluster failed')
-    
-      
+
     # Do the wait thing
-    waiter = client.get_waiter('cluster_available')
-    
-    try:
-        waiter.wait(ClusterIdentifier=ClusterIdentifier)
-    except botocore.exceptions.WaiterError, e:
-        module.fail_json(msg='cluster cannot be found')
-      
+    if module.params.get('wait'):
+        waiter = client.get_waiter('cluster_available')
+
+        try:
+            waiter.wait(ClusterIdentifier=ClusterIdentifier)
+        except botocore.exceptions.WaiterError, e:
+            module.fail_json(msg='cluster cannot be found')
+
     response = client.describe_clusters(
         ClusterIdentifier=ClusterIdentifier
     )
-    
+
     if (response['ResponseMetadata']['HTTPStatusCode'] != 200):
         module.fail_json(msg='cluster failed to start')
-    
+
     module.exit_json(
         changed=True,
         ansible_facts=dict(
             endpoint=response['Clusters'][0]['Endpoint']['Address']
         )
     )
+
+def facts_cluster(module, conn):
+    required_params = [
+        'name'
+        ]
+    valid_params = [
+        'wait',
+        'wait_timeout'
+        ]
+    validate_parameters(required_params, valid_params, module)
+
+    cluster_id = module.params.get('name')
+    cluster_facts = _describe_cluster(module, conn)
+
+    if not cluster_facts:
+        module.fail_json(msg='Unable to find cluster %s' % (cluster_id))
+
+    module.exit_json(
+        changed=False,
+        ansible_facts=dict(
+            endpoint=cluster_facts
+            )
+        )
+
+def delete_cluster(module, conn):
+    required_params = ['name']
+    valid_params = [
+        'skip_final_cluster_snapshot',
+        'final_cluster_snapshot_id',
+        'wait',
+        'wait_timeout'
+        ]
+    validate_parameters(required_params, valid_params, module)
+
+    ClusterIdentifier = module.params.get('name')
+    SkipFinalClusterSnapshot = module.params.get('skip_final_cluster_snapshot')
+    FinalClusterSnapshotIdentifier = module.params.get('FinalClusterSnapshotIdentifier')
+
+    cluster_facts = _describe_cluster(module, conn)
+
+    if not cluster_facts:
+        module.exit_json(changed=False)
+
+    if module.check_mode:
+        module.exit_json(changed=True)
+
+    params = dict(
+        ClusterIdentifier = ClusterIdentifier,
+        )
+
+    if SkipFinalClusterSnapshot is not None:
+        params['SkipFinalClusterSnapshot'] = SkipFinalClusterSnapshot
+    if FinalClusterSnapshotIdentifier is not None:
+        params['FinalClusterSnapshotIdentifier'] = FinalClusterSnapshotIdentifier
+
+    response = conn.delete_cluster(**params)
+
+    # Do the wait thing
+    if module.params.get('wait'):
+        waiter = client.get_waiter('cluster_deleted')
+
+        try:
+            waiter.wait(ClusterIdentifier=ClusterIdentifier)
+        except botocore.exceptions.WaiterError, e:
+            module.fail_json(msg='error waiting for cluster to be deleted')
+
+    module.exit_json(
+        changed=True
+        )
+
+
+def main():
+    argument_spec = dict(
+        command               = dict(required=True, choices=['create', 'replicate', 'delete', 'facts', 'modify', 'promote', 'snapshot', 'reboot', 'restore']),
+        name                  = dict(required=True, aliases=['cluster_identifier', 'cluster_id']),
+        node_type             = dict(required=True, default='dc1.large', choices=['ds1.xlarge', 'ds1.8xlarge', 'ds2.xlarge', 'ds2.8xlarge', 'dc1.large', 'dc1.8xlarge']),
+        username              = dict(required=True, default='admin', aliases=['master_username']),
+        password              = dict(required=True, aliases=['master_password']),
+        db_name               = dict(required=False, default='dev'),
+        cluster_type          = dict(required=False, default='multi-node', choices=['single-node','multi-node']),
+        cluster_security_groups = dict(required=False, type='list', aliases=['cluster_security_group_ids']),
+        vpc_security_groups   = dict(required=False, type='list', aliases=['vpc_security_group_ids']),
+        subnet                = dict(required=False, aliases=['cluster_subnet_group_name']),
+        zone                  = dict(required=False, aliases=['aws_zone', 'ec2_zone', 'availability_zone']),
+        maint_window          = dict(required=False, aliases=['maintenance_window', 'preferred_maintenance_window']),
+        parameter_group       = dict(required=False, aliases=['cluster_parameter_group_name']),
+        backup_retention      = dict(required=False, type='int', default=1, aliases=['automated_snapshot_retention', 'automated_snapshot_retention_period']),
+        db_port               = dict(required=False, type='int', default=5439, aliases=['port']),
+        cluster_version       = dict(required=False, default='1.0', aliases=['engine_version']),
+        allow_version_upgrade = dict(required=False, type='bool', default=False),
+        num_nodes             = dict(required=False, type='int', default=1, aliases=['number_of_nodes']),
+        public                = dict(required=False, type='bool', default=False, aliases=['publicly_accessible']),
+        encrypted             = dict(required=False, type='bool', default=False),
+        hsm_client_cert       = dict(required=False, aliases=['hsm_client_certificate_identifier']),
+        hsm_configuration_id  = dict(required=False, aliases=['hsm_configuration_identifier']),
+        elastic_ip            = dict(required=False),
+        tags                  = dict(required=False, type='dict', required=False)
+        kms_key_id            = dict(required=False),
+        wait                  = dict(required=False, type='bool', default=False),
+        wait_timeout          = dict(required=False, type='int', default=900),
+        skip_final_cluster_snapshot = dict(required=False, type='bool', default=False),
+        final_cluster_snapshot_id = dict(required=False, aliases=['final_cluster_snapshot_identifier'])
+    )
+    module = AnsibleModule(argument_spec=argument_spec, supports_check_mode=True)
+
+    if not HAS_BOTO3:
+        module.fail_json(msg='boto3 required for this module')
+    if not HAS_BOTO_EXCEPTIONS:
+        module.fail_json(msg='botocore.exceptions required for this module')
+
+    invocations = {
+        'create': create_cluster,
+        'delete': delete_cluster,
+        'facts': facts_cluster,
+        'modify': modify_cluster,
+    }
+
+    redshift_conn = boto3.client('redshift')
+
+    invocations[module.params.get('command')](module, redshift_conn)
 
 from ansible.module_utils.basic import *
 from ansible.module_utils.ec2 import *
