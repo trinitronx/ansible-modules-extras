@@ -143,54 +143,59 @@ def validate_parameters(required_params, valid_params, module):
     for v in required_params:
         if not module.params.get(v):
             module.fail_json(msg="Parameter %s required for %s command" % (v, command))
-    for (k, v) in module.params.items():
-        if k not in required_params:
-            if k not in valid_params:
-                module.fail_json(msg="Parameter %s is not valid for %s command" % (k, command))
+#    for (k, v) in module.params.items():
+#        if k not in required_params:
+#            if k not in valid_params:
+#                module.fail_json(msg="Parameter %s is not valid for %s command" % (k, command))
 
 # Mostly for checking 'ACTIVE' state
 def _has_delivery_stream_state(module, conn, state):
     delivery_stream = _describe_delivery_stream(module, conn)
+
+    if delivery_stream['ResponseMetadata']['HTTPStatusCode'] != 200:
+        return False # Query failed; await_delivery_stream will retry; facts will fail
+
     if not delivery_stream:
         if state == 'DELETED':
             return True
         else:
             return False
-    if not 'DeliveryStreamDescription' in delivery_stream:
+    if not 'DeliveryStreamStatus' in delivery_stream:
         return False
-    delivery_stream_description = delivery_stream['DeliveryStreamDescription']
-    if not 'DeliveryStreamStatus' in delivery_stream_description:
-        return False
-    if delivery_stream_description['DeliveryStreamStatus'] == state
+    if delivery_stream['DeliveryStreamStatus'] == state:
         return True
-    else
+    else:
         return False
 
 def _describe_delivery_stream(module, conn):
     params = dict(
-        'DeliveryStreamName' = module.params.get('delivery_stream_name')
+        DeliveryStreamName = module.params.get('delivery_stream_name')
         )
     try:
         delivery_stream = conn.describe_delivery_stream(**params)
     except botocore.exceptions.ClientError, e:
-        if 'ResourceNotFoundException' in e:
+        if 'ResourceNotFoundException' in str(e):
             return None
         else:
             raise
+    delivery_stream = delivery_stream['DeliveryStreamDescription']
+    if 'CreateTimestamp' in delivery_stream:
+        dt = str(delivery_stream['CreateTimestamp'])
+        delivery_stream['CreateTimestamp'] = dt
     return delivery_stream
 
 def await_delivery_stream_state(module, conn, state):
     wait_timeout = module.params.get('wait_timeout') + time.time()
     delivery_stream_name = module.params.get('delivery_stream_name')
     status = _has_delivery_stream_state(module, conn, state)
-    while wait_timeout > time.time() and not status
+    while wait_timeout > time.time() and not status:
         time.sleep(5)
         if wait_timeout <= time.time():
             module.fail_json(msg="Timeout waiting for Delivery Stream %s" % delivery_stream_name)
         status = _has_delivery_stream_state(module, conn, state)
     return status
 
-def create_delivery_stream(module, conn)
+def create_delivery_stream(module, conn):
     config_type = module.params.get('configuration_type')
     wait= module.params.get('wait')
 
@@ -262,7 +267,7 @@ def create_delivery_stream(module, conn)
     if config_type == 'redshift':
         # Required Redshift parameters, and S3 config initialization
         params['RedshiftDestinationConfiguration'] = dict(
-            RoleArn = redshift_role_arn,
+            RoleARN = redshift_role_arn,
             ClusterJDBCURL = redshift_cluster_jdbcurl,
             CopyCommand = dict(
                 DataTableName = redshift_copy_data_table_name,
@@ -304,20 +309,26 @@ def create_delivery_stream(module, conn)
         s3config['EncryptionConfiguration'] = dict()
     if s3_encryption_no_encryption_config is not None:
         # Explicitly disabling encryption sends the hard-coded value 'NoEncryptionConfig'
-        s3config['EncryptionConfiguration']['NoEncryptionConfig'] = 'NoEncryptionConfig'
+        s3config['EncryptionConfiguration']['NoEncryptionConfig'] = 'NoEncryption'
     if s3_encryption_awskmskeyarn is not None:
         s3config['EncryptionConfiguration']['AWSKMSKeyARN'] = s3_encryption_awskmskeyarn
 
     results = conn.create_delivery_stream(**params)
+    # TODO - catch exceptions, whatever those are
+    if not results or results['ResponseMetadata']['HTTPStatusCode'] != 200:
+        module.fail_json('Create delivery stream failed')
 
     if wait:
         await_delivery_stream_state(module, conn, 'ACTIVE')
 
-    module.exit_json(changed=True, delivery_stream=results)
+    # Retrieve delivery stream data to return as facts
+    delivery_stream = _describe_delivery_stream(module, conn)
 
-def delete_delivery_stream(module, conn)
+    module.exit_json(changed=True, ansible_facts=dict(delivery_stream=delivery_stream))
+
+def delete_delivery_stream(module, conn):
     required_params = ['delivery_stream_name']
-    valid_params ['wait', 'wait_timeout']
+    valid_params = ['wait', 'wait_timeout']
     validate_parameters(required_params, valid_params, module)
 
     wait= module.params.get('wait')
@@ -331,29 +342,31 @@ def delete_delivery_stream(module, conn)
         module.exit_json(changed=True)
 
     params = dict(
-        'DeliveryStreamName' = module.params.get('delivery_stream_name')
+        DeliveryStreamName = module.params.get('delivery_stream_name')
         )
 
     results = conn.delete_delivery_stream(**params)
 
     if wait:
-        await_delivery_stream_state(module, conn, 'DELETE')
+        await_delivery_stream_state(module, conn, 'DELETED')
 
     module.exit_json(changed=True)
 
 def facts_delivery_stream(module, conn):
     required_params = ['delivery_stream_name']
-    valid_params []
+    valid_params = []
     validate_parameters(required_params, valid_params, module)
 
-    delivery_stream = _get_delivery_stream(module, conn)
+    delivery_stream = _describe_delivery_stream(module, conn)
+    delivery_stream_name = module.params.get('delivery_stream_name')
 
     if not delivery_stream:
-        module.fail_json(msg="Delivery Stream %s does not exist" % DeliveryStreamName)
+        module.fail_json(msg="Delivery Stream %s does not exist" % delivery_stream_name)
 
     module.exit_json(changed=False, ansible_facts=dict(delivery_stream=delivery_stream))
 
-def modify_delivery_stream(module, conn)
+def modify_delivery_stream(module, conn):
+    pass
 
     # TODO - no modify command yet
 
@@ -362,7 +375,7 @@ def main():
     argument_spec = dict(
         command = dict(choices=['create', 'delete', 'facts', 'modify'], required=True),
         delivery_stream_name = dict(required=True),
-        configuration_type = dict(choices['s3', 'redshift'], required=False),
+        configuration_type = dict(choices=['s3', 'redshift'], required=False),
         redshift_role_arn = dict(required=False),
         redshift_cluster_jdbcurl = dict(required=False),
         redshift_copy_data_table_name = dict(required=False),
@@ -373,8 +386,8 @@ def main():
         s3_role_arn = dict(required=False),
         s3_bucket_arn = dict(required=False),
         s3_prefix = dict(required=False),
-        s3_compression_format = dict(choices['UNCOMPRESSED', 'GZIP', 'ZIP', 'Snappy'], required=False),
-        s3_buffering_hints_size_in_mb = dict(required=False, default=5)
+        s3_compression_format = dict(choices=['UNCOMPRESSED', 'GZIP', 'ZIP', 'Snappy'], required=False),
+        s3_buffering_hints_size_in_mb = dict(required=False),
         s3_buffering_interval_in_seconds = dict(required=False),
         s3_encryption_no_encryption_config = dict(required=False),
         s3_encryption_awskmskeyarn = dict(required=False),
@@ -396,7 +409,7 @@ def main():
         'create': create_delivery_stream,
         'delete': delete_delivery_stream,
         'facts': facts_delivery_stream,
-        'modify': modify_delivery_stream,
+#        'modify': modify_delivery_stream,
     }
 
     firehose_conn = boto3.client('firehose')
