@@ -120,7 +120,7 @@ requirements:
     - "python >= 2.7"
     - "boto3"
 author:
-    - "Les Barstow (@LesBarstow)"
+    - "Return Path (@ReturnPath)"
 '''
 
 import sys
@@ -144,12 +144,11 @@ def validate_parameters(required_params, valid_params, module):
         if not module.params.get(v):
             module.fail_json(msg="Parameter %s required for %s command" % (v, command))
 
-# Mostly for checking 'ACTIVE' state
 def _has_delivery_stream_state(module, conn, state):
     delivery_stream = _describe_delivery_stream(module, conn)
 
     if delivery_stream['ResponseMetadata']['HTTPStatusCode'] != 200:
-        return False # Query failed; await_delivery_stream will retry; facts will fail
+        return False
 
     if not delivery_stream:
         if state == 'DELETED':
@@ -158,10 +157,7 @@ def _has_delivery_stream_state(module, conn, state):
             return False
     if not 'DeliveryStreamStatus' in delivery_stream:
         return False
-    if delivery_stream['DeliveryStreamStatus'] == state:
-        return True
-    else:
-        return False
+    return delivery_stream['DeliveryStreamStatus'] == state:
 
 def _describe_delivery_stream(module, conn):
     params = dict(
