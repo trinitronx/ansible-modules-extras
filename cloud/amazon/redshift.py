@@ -189,10 +189,6 @@ def validate_parameters(required_params, valid_params, module):
     for v in required_params:
         if not module.params.get(v):
             module.fail_json(msg="Parameter %s required for %s command" % (v, command))
-#    for (k, v) in module.params.items():
-#        if k not in required_params:
-#            if k not in valid_params:
-#                module.fail_json(msg="Parameter %s is not valid for %s command" % (k, command))
 
 def _describe_cluster(module, conn):
     ClusterIdentifier = module.params.get('name')
