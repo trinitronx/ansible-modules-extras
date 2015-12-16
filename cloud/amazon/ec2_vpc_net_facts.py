@@ -15,18 +15,19 @@
 
 DOCUMENTATION = '''
 ---
-module: ec2_vpc_subnet_facts
-short_description: Gather facts about ec2 VPC subnets in AWS
+module: ec2_vpc_net_facts
+short_description: Gather facts about ec2 VPCs in AWS
 description:
-    - Gather facts about ec2 VPC subnets in AWS
-version_added: "2.1"
+    - Gather facts about ec2 VPCs in AWS
+version_added: "2.0"
 author: "Rob White (@wimnat)"
 options:
   filters:
     description:
-      - A dict of filters to apply. Each dict item consists of a filter key and a filter value. See U(http://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DescribeSubnets.html) for possible filters.
+      - A dict of filters to apply. Each dict item consists of a filter key and a filter value. See U(http://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DescribeVpcs.html) for possible filters.
     required: false
     default: null
+
 extends_documentation_fragment:
     - aws
     - ec2
@@ -35,23 +36,18 @@ extends_documentation_fragment:
 EXAMPLES = '''
 # Note: These examples do not set authentication details, see the AWS Guide for details.
 
-# Gather facts about all VPC subnets
-- ec2_vpc_subnet_facts:
+# Gather facts about all VPCs
+- ec2_vpc_net_facts:
 
-# Gather facts about a particular VPC subnet using ID
-- ec2_vpc_subnet_facts:
+# Gather facts about a particular VPC using VPC ID
+- ec2_vpc_net_facts:
     filters:
-      subnet-id: subnet-00112233
+      vpc-id: vpc-00112233
 
-# Gather facts about any VPC subnet with a tag key Name and value Example
-- ec2_vpc_subnet_facts:
+# Gather facts about any VPC with a tag key Name and value Example
+- ec2_vpc_net_facts:
     filters:
       "tag:Name": Example
-
-# Gather facts about any VPC subnet within VPC with ID vpc-abcdef00
-- ec2_vpc_subnet_facts:
-    filters:
-      vpc-id: vpc-abcdef00
 
 '''
 
@@ -62,35 +58,39 @@ try:
 except ImportError:
     HAS_BOTO = False
 
-def get_subnet_info(subnet):
-
-    subnet_info = { 'id': subnet.id,
-                    'availability_zone': subnet.availability_zone,
-                    'available_ip_address_count': subnet.available_ip_address_count,
-                    'cidr_block': subnet.cidr_block,
-                    'default_for_az': subnet.defaultForAz,
-                    'map_public_ip_on_launch': subnet.mapPublicIpOnLaunch,
-                    'state': subnet.state,
-                    'tags': subnet.tags,
-                    'vpc_id': subnet.vpc_id
-                  }
-
-    return subnet_info
-
-def list_ec2_vpc_subnets(connection, module):
-
-    filters = module.params.get("filters")
-    subnet_dict_array = []
+def get_vpc_info(vpc):
 
     try:
-        all_subnets = connection.get_all_subnets(filters=filters)
+        classic_link = vpc.classic_link_enabled
+    except AttributeError:
+        classic_link = False
+      
+    vpc_info = { 'id': vpc.id,
+                 'instance_tenancy': vpc.instance_tenancy,
+                 'classic_link_enabled': classic_link,
+                 'dhcp_options_id': vpc.dhcp_options_id,
+                 'state': vpc.state,
+                 'is_default': vpc.is_default,
+                 'cidr_block': vpc.cidr_block,
+                 'tags': vpc.tags
+               }
+
+    return vpc_info
+
+def list_ec2_vpcs(connection, module):
+
+    filters = module.params.get("filters")
+    vpc_dict_array = []
+
+    try:
+        all_vpcs = connection.get_all_vpcs(filters=filters)
     except BotoServerError as e:
         module.fail_json(msg=e.message)
 
-    for subnet in all_subnets:
-        subnet_dict_array.append(get_subnet_info(subnet))
+    for vpc in all_vpcs:
+        vpc_dict_array.append(get_vpc_info(vpc))
 
-    module.exit_json(subnets=subnet_dict_array)
+    module.exit_json(vpcs=vpc_dict_array)
 
 
 def main():
@@ -111,12 +111,12 @@ def main():
     if region:
         try:
             connection = connect_to_aws(boto.vpc, region, **aws_connect_params)
-        except (boto.exception.NoAuthHandlerFound, AnsibleAWSError), e:
+        except (boto.exception.NoAuthHandlerFound, StandardError), e:
             module.fail_json(msg=str(e))
     else:
         module.fail_json(msg="region must be specified")
 
-    list_ec2_vpc_subnets(connection, module)
+    list_ec2_vpcs(connection, module)
 
 from ansible.module_utils.basic import *
 from ansible.module_utils.ec2 import *

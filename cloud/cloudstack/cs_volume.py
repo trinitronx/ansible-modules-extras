@@ -95,6 +95,11 @@ options:
       - Considered on C(state=absnet) only.
     required: false
     default: false
+  shrink_ok:
+    description:
+      - Whether to allow to shrink the volume.
+    required: false
+    default: false
   vm:
     description:
       - Name of the virtual machine to attach the volume to.
@@ -255,10 +260,8 @@ class AnsibleCloudStackVolume(AnsibleCloudStack):
         if not disk_offering:
             return None
 
-        args = {}
-        args['domainid'] = self.get_domain(key='id')
-
-        disk_offerings = self.cs.listDiskOfferings(**args)
+        # Do not add domain filter for disk offering listing.
+        disk_offerings = self.cs.listDiskOfferings()
         if disk_offerings:
             for d in disk_offerings['diskoffering']:
                 if disk_offering in [d['displaytext'], d['name'], d['id']]:
@@ -272,6 +275,8 @@ class AnsibleCloudStackVolume(AnsibleCloudStack):
             args['account'] = self.get_account(key='name')
             args['domainid'] = self.get_domain(key='id')
             args['projectid'] = self.get_project(key='id')
+            args['zoneid'] = self.get_zone(key='id')
+            args['displayvolume'] = self.module.params.get('display_volume')
             args['type'] = 'DATADISK'
 
             volumes = self.cs.listVolumes(**args)
@@ -303,7 +308,9 @@ class AnsibleCloudStackVolume(AnsibleCloudStack):
 
     def present_volume(self):
         volume = self.get_volume()
-        if not volume:
+        if volume:
+            volume = self.update_volume(volume)
+        else:
             disk_offering_id = self.get_disk_offering(key='id')
             snapshot_id = self.get_snapshot(key='id')
 
@@ -405,12 +412,40 @@ class AnsibleCloudStackVolume(AnsibleCloudStack):
         return volume
 
 
+    def update_volume(self, volume):
+        args_resize = {}
+        args_resize['id'] = volume['id']
+        args_resize['diskofferingid'] = self.get_disk_offering(key='id')
+        args_resize['maxiops'] = self.module.params.get('max_iops')
+        args_resize['miniops'] = self.module.params.get('min_iops')
+        args_resize['size'] = self.module.params.get('size')
+
+        # change unit from bytes to giga bytes to compare with args
+        volume_copy = volume.copy()
+        volume_copy['size'] = volume_copy['size'] / (2**30)
+
+        if self.has_changed(args_resize, volume_copy):
+
+            self.result['changed'] = True
+            if not self.module.check_mode:
+                args_resize['shrinkok'] = self.module.params.get('shrink_ok')
+                res = self.cs.resizeVolume(**args_resize)
+                if 'errortext' in res:
+                    self.module.fail_json(msg="Failed: '%s'" % res['errortext'])
+                poll_async = self.module.params.get('poll_async')
+                if poll_async:
+                    volume = self.poll_job(res, 'volume')
+                self.volume = volume
+
+        return volume
+
+
 def main():
     argument_spec = cs_argument_spec()
     argument_spec.update(dict(
         name = dict(required=True),
         disk_offering = dict(default=None),
-        display_volume = dict(choices=BOOLEANS, default=True),
+        display_volume = dict(type='bool', default=None),
         max_iops = dict(type='int', default=None),
         min_iops = dict(type='int', default=None),
         size = dict(type='int', default=None),
@@ -418,13 +453,14 @@ def main():
         vm = dict(default=None),
         device_id = dict(type='int', default=None),
         custom_id = dict(default=None),
-        force = dict(choices=BOOLEANS, default=False),
+        force = dict(type='bool', default=False),
+        shrink_ok = dict(type='bool', default=False),
         state = dict(choices=['present', 'absent', 'attached', 'detached'], default='present'),
         zone = dict(default=None),
         domain = dict(default=None),
         account = dict(default=None),
         project = dict(default=None),
-        poll_async = dict(choices=BOOLEANS, default=True),
+        poll_async = dict(type='bool', default=True),
     ))
 
     module = AnsibleModule(
@@ -455,7 +491,7 @@ def main():
 
         result = acs_vol.get_result(volume)
 
-    except CloudStackException, e:
+    except CloudStackException as e:
         module.fail_json(msg='CloudStackException: %s' % str(e))
 
     module.exit_json(**result)
