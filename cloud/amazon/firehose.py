@@ -147,7 +147,7 @@ def validate_parameters(required_params, valid_params, module):
 def _has_delivery_stream_state(module, conn, state):
     delivery_stream = _describe_delivery_stream(module, conn)
 
-    if delivery_stream['ResponseMetadata']['HTTPStatusCode'] != 200:
+    if ( 'ResponseMetadata' in delivery_stream.keys() and delivery_stream['ResponseMetadata']['HTTPStatusCode'] != 200):
         return False
 
     if not delivery_stream:
@@ -157,7 +157,7 @@ def _has_delivery_stream_state(module, conn, state):
             return False
     if not 'DeliveryStreamStatus' in delivery_stream:
         return False
-    return delivery_stream['DeliveryStreamStatus'] == state:
+    return delivery_stream['DeliveryStreamStatus'] == state
 
 def _describe_delivery_stream(module, conn):
     params = dict(
@@ -307,7 +307,7 @@ def create_delivery_stream(module, conn):
 
     results = conn.create_delivery_stream(**params)
     # TODO - catch exceptions, whatever those are
-    if not results or results['ResponseMetadata']['HTTPStatusCode'] != 200:
+    if not results or ( 'ResponseMetadata' in results and results['ResponseMetadata']['HTTPStatusCode'] != 200):
         module.fail_json('Create delivery stream failed')
 
     if wait:
