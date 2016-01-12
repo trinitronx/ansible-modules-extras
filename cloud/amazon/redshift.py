@@ -343,6 +343,13 @@ def create_cluster(module, conn):
         ClusterIdentifier=ClusterIdentifier
     )
 
+    # Convert datetime.datetime object to string - exit_json and running through
+    # json.loads(json.dumps(...)) does not work here :-/
+    for k,v in enumerate(response['Clusters']):
+      for k2,v2 in response['Clusters'][k].iteritems():
+        if isinstance(v2, datetime.datetime):
+          response['Clusters'][k][k2] = str( v2 )
+
     if not response or response['ResponseMetadata']['HTTPStatusCode'] != 200:
         module.fail_json(msg='cluster failed to start')
 
