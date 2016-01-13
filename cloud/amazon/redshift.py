@@ -172,6 +172,8 @@ author: "Return Path (@ReturnPath)"
 # https://boto3.readthedocs.org/en/latest/reference/services/redshift.html
 
 import time
+import json
+import datetime
 
 try:
     import boto3
@@ -256,7 +258,11 @@ def create_cluster(module, conn):
     cluster_facts = _describe_cluster(module, conn)
 
     if cluster_facts:
-        module.exit_json(changed=False)
+        module.exit_json(
+          changed=False,
+          ansible_facts=json.loads(json.dumps(dict(
+          ec2_redshift=cluster_facts
+        ))))
 
     if module.check_mode:
         module.exit_json(changed=True)
@@ -338,14 +344,21 @@ def create_cluster(module, conn):
         ClusterIdentifier=ClusterIdentifier
     )
 
+    # Convert datetime.datetime object to string - exit_json and running through
+    # json.loads(json.dumps(...)) does not work here :-/
+    for k,v in enumerate(response['Clusters']):
+      for k2,v2 in response['Clusters'][k].iteritems():
+        if isinstance(v2, datetime.datetime):
+          response['Clusters'][k][k2] = str( v2 )
+
     if not response or response['ResponseMetadata']['HTTPStatusCode'] != 200:
         module.fail_json(msg='cluster failed to start')
 
     module.exit_json(
         changed=True,
-        ansible_facts=dict(
+        ansible_facts=json.loads(json.dumps(dict(
             cluster=response
-        )
+        )))
     )
 
 def facts_cluster(module, conn):
@@ -367,7 +380,7 @@ def facts_cluster(module, conn):
     module.exit_json(
         changed=False,
         ansible_facts=dict(
-            endpoint=cluster_facts
+            ec2_redshift=json.loads(json.dumps(cluster_facts))
             )
         )
 
@@ -427,7 +440,7 @@ def main():
         password              = dict(required=False, aliases=['master_password']),
         db_name               = dict(required=False, default='dev'),
         cluster_type          = dict(required=False, choices=['single-node','multi-node']),
-        cluster_security_groups = dict(required=False, type='list', aliases=['cluster_security_group_ids']),
+        cluster_security_groups = dict(required=False,  aliases=['cluster_security_group_ids']),
         vpc_security_groups   = dict(required=False, type='list', aliases=['vpc_security_group_ids']),
         subnet                = dict(required=False, aliases=['cluster_subnet_group_name']),
         zone                  = dict(required=False, aliases=['aws_zone', 'ec2_zone', 'availability_zone']),
