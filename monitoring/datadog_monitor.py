@@ -49,10 +49,12 @@ options:
         required: true
         choices: ['present', 'absent', 'muted', 'unmuted']
     type:
-        description: ["The type of the monitor."]
+        description:
+            - "The type of the monitor."
+            - The 'event alert'is available starting at Ansible 2.1
         required: false
         default: null
-        choices: ['metric alert', 'service check']
+        choices: ['metric alert', 'service check', 'event alert']
     query:
         description: ["The monitor query to notify on with syntax varying depending on what type of monitor you are creating."]
         required: false
@@ -139,17 +141,17 @@ def main():
             api_key=dict(required=True),
             app_key=dict(required=True),
             state=dict(required=True, choises=['present', 'absent', 'mute', 'unmute']),
-            type=dict(required=False, choises=['metric alert', 'service check']),
+            type=dict(required=False, choises=['metric alert', 'service check', 'event alert']),
             name=dict(required=True),
             query=dict(required=False),
             message=dict(required=False, default=None),
             silenced=dict(required=False, default=None, type='dict'),
-            notify_no_data=dict(required=False, default=False, choices=BOOLEANS),
+            notify_no_data=dict(required=False, default=False, type='bool'),
             no_data_timeframe=dict(required=False, default=None),
             timeout_h=dict(required=False, default=None),
             renotify_interval=dict(required=False, default=None),
             escalation_message=dict(required=False, default=None),
-            notify_audit=dict(required=False, default=False, choices=BOOLEANS),
+            notify_audit=dict(required=False, default=False, type='bool'),
             thresholds=dict(required=False, type='dict', default={'ok': 1, 'critical': 1, 'warning': 1}),
         )
     )

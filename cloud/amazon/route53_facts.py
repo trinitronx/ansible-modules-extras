@@ -160,7 +160,6 @@ EXAMPLES = '''
 
 '''
 try:
-    import json
     import boto
     import botocore
     HAS_BOTO = True
@@ -178,7 +177,7 @@ def get_hosted_zone(client, module):
     params = dict()
 
     if module.params.get('hosted_zone_id'):
-        params['HostedZoneId'] = module.params.get('hosted_zone_id')
+        params['Id'] = module.params.get('hosted_zone_id')
     else:
         module.fail_json(msg="Hosted Zone Id is required")
 

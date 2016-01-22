@@ -22,7 +22,12 @@ import stat
 try:
     import json
 except ImportError:
-    import simplejson as json
+    try:
+        import simplejson as json
+    except ImportError:
+        # Let snippet from module_utils/basic.py return a proper error in this case
+        pass
+
 
 DOCUMENTATION = '''
 ---
@@ -47,14 +52,6 @@ options:
       - Path to the manifest file to run puppet apply on.
     required: false
     default: None
-  show_diff:
-    description:
-      - >
-       Should puppet return diffs of changes applied. Defaults to off to
-       avoid leaking secret changes by default.
-    required: false
-    default: no
-    choices: [ "yes", "no" ]
   facts:
     description:
       - A dict of values to pass in as persistent external facter facts
@@ -115,7 +112,7 @@ def main():
             puppetmaster=dict(required=False, default=None),
             manifest=dict(required=False, default=None),
             show_diff=dict(
-                default=False, aliases=['show-diff'], type='bool'),
+                default=False, aliases=['show-diff'], type='bool'), # internal code to work with --diff, do not use
             facts=dict(default=None),
             facter_basename=dict(default='ansible'),
             environment=dict(required=False, default=None),

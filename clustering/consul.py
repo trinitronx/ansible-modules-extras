@@ -191,11 +191,6 @@ EXAMPLES = '''
 import sys
 
 try:
-    import json
-except ImportError:
-    import simplejson as json
-
-try:
     import consul
     from requests.exceptions import ConnectionError
     python_consul_installed = True
@@ -523,7 +518,7 @@ def main():
             http=dict(required=False, type='str'),
             timeout=dict(required=False, type='str'),
             tags=dict(required=False, type='list'),
-            token=dict(required=False)
+            token=dict(required=False, no_log=True)
         ),
         supports_check_mode=False,
     )

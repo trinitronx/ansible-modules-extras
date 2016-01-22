@@ -123,11 +123,6 @@ EXAMPLES = '''
 import sys
 
 try:
-    import json
-except ImportError:
-    import simplejson as json
-
-try:
     import consul
     from requests.exceptions import ConnectionError
     python_consul_installed = True
@@ -241,7 +236,7 @@ def main():
         recurse=dict(required=False, type='bool'),
         retrieve=dict(required=False, default=True),
         state=dict(default='present', choices=['present', 'absent']),
-        token=dict(required=False, default='anonymous'),
+        token=dict(required=False, default='anonymous', no_log=True),
         value=dict(required=False)
     )
 

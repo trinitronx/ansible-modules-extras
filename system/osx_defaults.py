@@ -124,9 +124,11 @@ class OSXDefaults(object):
         if type == "string":
             return str(value)
         elif type in ["bool", "boolean"]:
-            if value.lower() in [True, 1, "true", "1", "yes"]:
+            if isinstance(value, basestring):
+                value = value.lower()
+            if value in [True, 1, "true", "1", "yes"]:
                 return True
-            elif value.lower() in [False, 0, "false", "0", "no"]:
+            elif value in [False, 0, "false", "0", "no"]:
                 return False
             raise OSXDefaultsException("Invalid boolean value: {0}".format(repr(value)))
         elif type == "date":
@@ -309,7 +311,7 @@ def main():
             array_add=dict(
                 default=False,
                 required=False,
-                choices=BOOLEANS,
+                type='bool',
             ),
             value=dict(
                 default=None,
