@@ -147,7 +147,7 @@ def validate_parameters(required_params, valid_params, module):
 def _has_delivery_stream_state(module, conn, state):
     delivery_stream = _describe_delivery_stream(module, conn)
 
-    if ( 'ResponseMetadata' in delivery_stream.keys() and delivery_stream['ResponseMetadata']['HTTPStatusCode'] != 200):
+    if delivery_stream and ( 'ResponseMetadata' in delivery_stream.keys() and delivery_stream['ResponseMetadata']['HTTPStatusCode'] != 200):
         return False
 
     if not delivery_stream:
