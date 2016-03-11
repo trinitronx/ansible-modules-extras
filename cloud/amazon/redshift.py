@@ -168,6 +168,65 @@ extends_documentation_fragment:
 author: "Return Path (@ReturnPath)"
 '''
 
+EXAMPLES = '''
+
+# Create a RedShift cluster
+- name: Create RedShift cluster
+  local_action:
+    module: redshift
+    command: create
+    name: "test-cluster"
+    node_type: "dc1.large"
+    username: "mytestuser"
+    password: "myreallylongtestpassword"
+    db_name: "mytestdbname"
+    cluster_type: multi-node
+    num_nodes: 4
+    backup_retention: 35
+    db_port: 5439
+    allow_version_upgrade: false
+    public: true
+    wait: true
+    vpc_security_groups: "sg-abc12345"
+    parameter_group: "default.redshift-1.0"
+    subnet: "redshift-subnet-group-name"
+    zone: us-east-1a
+    maint_window: "mon:03:00-mon:03:30"
+  tags:
+    - redshift
+
+- name: Delete RedShift cluster but create a final snapshot that is to be created immediately before deleting the cluster (SAFEST!)
+  local_action:
+    module: redshift
+    command: delete
+    name: "prod-cluster"
+    skip_final_cluster_snapshot: false
+    wait: true
+    final_cluster_snapshot_id: mysnapshotid
+  tags:
+    - redshift
+
+- name: Delete RedShift cluster WITHOUT creating final snapshot (DANGER!)
+  local_action:
+    module: redshift
+    command: delete
+    name: "dev-cluster"
+    skip_final_cluster_snapshot: true
+    wait: true
+  tags:
+    - redshift
+
+- name: Get RedShift cluster facts
+  local_action:
+    module: redshift
+    command: facts
+    name: "test-cluster"
+    wait: true
+  tags:
+    - redshift
+
+'''
+
 # TODO: http://docs.ansible.com/ansible/developing_modules.html
 # https://boto3.readthedocs.org/en/latest/reference/services/redshift.html
 
@@ -396,7 +455,7 @@ def delete_cluster(module, conn):
 
     ClusterIdentifier = module.params.get('name')
     SkipFinalClusterSnapshot = module.params.get('skip_final_cluster_snapshot')
-    FinalClusterSnapshotIdentifier = module.params.get('FinalClusterSnapshotIdentifier')
+    FinalClusterSnapshotIdentifier = module.params.get('final_cluster_snapshot_id')
 
     cluster_facts = _describe_cluster(module, conn)
 
