@@ -55,12 +55,11 @@ options:
     state:
         description:
             - Virtual Server state
-        required: false
-        default: present
-        description:
             - Absent, delete the VS if present
             - present (and its synonym enabled), create if needed the VS and set state to enabled
             - disabled, create if needed the VS and set state to disabled
+        required: false
+        default: present
         choices: ['present', 'absent', 'enabled', 'disabled']
         aliases: []
     partition:
@@ -393,7 +392,7 @@ def main():
         module.fail_json(msg="valid ports must be in range 1 - 65535")
   
     try:
-        api = bigip_api(server, user, password)
+        api = bigip_api(server, user, password, validate_certs)
         result = {'changed': False}  # default
 
         if state == 'absent':

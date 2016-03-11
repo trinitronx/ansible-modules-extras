@@ -129,7 +129,7 @@ def _fail_if_no_dnf(module):
     """Fail if unable to import dnf."""
     if not HAS_DNF:
         module.fail_json(
-            msg="`python-dnf` is not installed, but it is required for the Ansible dnf module.")
+            msg="`python2-dnf` is not installed, but it is required for the Ansible dnf module.")
 
 
 def _configure_base(module, base, conf_file, disable_gpg_check):
@@ -176,7 +176,6 @@ def _specify_repositories(base, disablerepo, enablerepo):
 
 def _base(module, conf_file, disable_gpg_check, disablerepo, enablerepo):
     """Return a fully configured dnf Base object."""
-    _fail_if_no_dnf(module)
     base = dnf.Base()
     _configure_base(module, base, conf_file, disable_gpg_check)
     _specify_repositories(base, disablerepo, enablerepo)
@@ -234,6 +233,7 @@ def _mark_package_install(module, base, pkg_spec):
 
 
 def ensure(module, base, state, names):
+    allow_erasing = False
     if names == ['*'] and state == 'latest':
         base.upgrade_all()
     else:
@@ -273,13 +273,13 @@ def ensure(module, base, state, names):
                     # If not already installed, try to install.
                     base.group_install(group, const.GROUP_PACKAGE_TYPES)
             for pkg_spec in pkg_specs:
-                try:
-                    base.upgrade(pkg_spec)
-                except dnf.exceptions.MarkingError:
-                    # If not already installed, try to install.
-                    _mark_package_install(module, base, pkg_spec)
+                # best effort causes to install the latest package
+                # even if not previously installed
+                base.conf.best = True
+                base.install(pkg_spec)
 
         else:
+            # state == absent
             if filenames:
                 module.fail_json(
                     msg="Cannot remove paths -- please specify package name.")
@@ -291,8 +291,11 @@ def ensure(module, base, state, names):
             for pkg_spec in pkg_specs:
                 if installed.filter(name=pkg_spec):
                     base.remove(pkg_spec)
+            # Like the dnf CLI we want to allow recursive removal of dependent
+            # packages
+            allow_erasing = True
 
-    if not base.resolve():
+    if not base.resolve(allow_erasing=allow_erasing):
         module.exit_json(msg="Nothing to do")
     else:
         if module.check_mode:
@@ -327,6 +330,8 @@ def main():
         mutually_exclusive=[['name', 'list']],
         supports_check_mode=True)
     params = module.params
+
+    _fail_if_no_dnf(module)
     if params['list']:
         base = _base(
             module, params['conf_file'], params['disable_gpg_check'],

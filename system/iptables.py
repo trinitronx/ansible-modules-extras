@@ -211,6 +211,11 @@ options:
     description:
       - "Specifies the maximum average number of matches to allow per second. The number can specify units explicitly, using `/second', `/minute', `/hour' or `/day', or parts of them (so `5/second' is the same as `5/s')."
     required: false
+  limit_burst:
+    version_added: "2.1"
+    description:
+      - "Specifies the maximum burst before the above limit kicks in."
+    required: false
 '''
 
 EXAMPLES = '''
@@ -238,7 +243,7 @@ def append_param(rule, param, flag, is_list):
 
 
 def append_csv(rule, param, flag):
-    if param is not None:
+    if param:
         rule.extend([flag, ','.join(param)])
 
 
@@ -266,8 +271,9 @@ def construct_rule(params):
     append_param(rule, params['comment'], '--comment', False)
     append_match(rule, params['ctstate'], 'state')
     append_csv(rule, params['ctstate'], '--state')
-    append_match(rule, params['limit'], 'limit')
+    append_match(rule, params['limit'] or params['limit_burst'], 'limit')
     append_param(rule, params['limit'], '--limit', False)
+    append_param(rule, params['limit_burst'], '--limit-burst', False)
     return rule
 
 
@@ -319,6 +325,7 @@ def main():
             comment=dict(required=False, default=None, type='str'),
             ctstate=dict(required=False, default=[], type='list'),
             limit=dict(required=False, default=None, type='str'),
+            limit_burst=dict(required=False, default=None, type='str'),
         ),
     )
     args = dict(

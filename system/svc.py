@@ -22,7 +22,7 @@ DOCUMENTATION = '''
 ---
 module: svc
 author: "Brian Coca (@bcoca)"
-version_added:
+version_added: "1.9"
 short_description:  Manage daemontools services.
 description:
     - Controls daemontools services on remote hosts using the svc utility.
@@ -38,7 +38,7 @@ options:
             - C(Started)/C(stopped) are idempotent actions that will not run
               commands unless necessary.  C(restarted) will always bounce the
               svc (svc -t) and C(killed) will always bounce the svc (svc -k).
-              C(reloaded) will send a sigusr1 (svc -u).
+              C(reloaded) will send a sigusr1 (svc -1).
               C(once) will run a normally downed svc once (svc -o), not really
               an idempotent operation.
     downed:

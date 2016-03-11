@@ -203,7 +203,9 @@ class Host(object):
         try:
             if self._module.check_mode:
                 self._module.exit_json(changed=True)
-            parameters = {'hostid': host_id, 'groups': group_ids, 'status': status, 'proxy_hostid': proxy_id}
+            parameters = {'hostid': host_id, 'groups': group_ids, 'status': status}
+            if proxy_id:
+                parameters['proxy_hostid'] = proxy_id
             self._zapi.host.update(parameters)
             interface_list_copy = exist_interface_list
             if interfaces:
@@ -289,9 +291,11 @@ class Host(object):
     # check the exist_interfaces whether it equals the interfaces or not
     def check_interface_properties(self, exist_interface_list, interfaces):
         interfaces_port_list = []
-        if len(interfaces) >= 1:
-            for interface in interfaces:
-                interfaces_port_list.append(int(interface['port']))
+
+        if interfaces is not None:
+            if len(interfaces) >= 1:
+                for interface in interfaces:
+                    interfaces_port_list.append(int(interface['port']))
 
         exist_interface_ports = []
         if len(exist_interface_list) >= 1:
@@ -367,18 +371,18 @@ class Host(object):
 def main():
     module = AnsibleModule(
         argument_spec=dict(
-            server_url=dict(required=True, aliases=['url']),
-            login_user=dict(required=True),
-            login_password=dict(required=True, no_log=True),
-            host_name=dict(required=True),
-            host_groups=dict(required=False),
-            link_templates=dict(required=False),
+            server_url=dict(type='str', required=True, aliases=['url']),
+            login_user=dict(rtype='str', equired=True),
+            login_password=dict(type='str', required=True, no_log=True),
+            host_name=dict(type='str', required=True),
+            host_groups=dict(type='list', required=False),
+            link_templates=dict(type='list', required=False),
             status=dict(default="enabled", choices=['enabled', 'disabled']),
             state=dict(default="present", choices=['present', 'absent']),
             timeout=dict(type='int', default=10),
-            interfaces=dict(required=False),
-            force=dict(default=True, type='bool'),
-            proxy=dict(required=False)
+            interfaces=dict(type='list', required=False),
+            force=dict(type='bool', default=True),
+            proxy=dict(type='str', required=False)
         ),
         supports_check_mode=True
     )
@@ -427,15 +431,16 @@ def main():
             if interface['type'] == 1:
                 ip = interface['ip']
 
-    proxy_id = "0"
-
-    if proxy:
-        proxy_id = host.get_proxyid_by_proxy_name(proxy)
-
     # check if host exist
     is_host_exist = host.is_host_exist(host_name)
 
     if is_host_exist:
+        # Use proxy specified, or set to None when updating host
+        if proxy:
+            proxy_id = host.get_proxyid_by_proxy_name(proxy)
+        else:
+            proxy_id = None
+        
         # get host id by host name
         zabbix_host_obj = host.get_host_by_host_name(host_name)
         host_id = zabbix_host_obj['hostid']
@@ -480,6 +485,12 @@ def main():
                 else:
                     module.exit_json(changed=False)
     else:
+        # Use proxy specified, or set to 0 when adding new host
+        if proxy:
+            proxy_id = host.get_proxyid_by_proxy_name(proxy)
+        else:
+            proxy_id = 0
+
         if not group_ids:
             module.fail_json(msg="Specify at least one group for creating host '%s'." % host_name)
 
