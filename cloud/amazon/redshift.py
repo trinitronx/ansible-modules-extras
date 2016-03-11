@@ -19,7 +19,7 @@ module: redshift
 short_description: add or delete redshift cluster
 description:
     - Creates and deletes redshift clusters
-version_added: "2.0"
+version_added: "2.1"
 options:
     command:
         description:
@@ -30,7 +30,7 @@ options:
         description:
             - "The name of the redshift cluster to create (eg: my-redshift-cluster)"
         required: true
-        aliases=['cluster_identifier', 'cluster_id']
+        aliases: [ 'cluster_identifier', 'cluster_id' ]
     db_name:
         description:
             - The name of the first database to be created when the cluster is created.
@@ -154,7 +154,7 @@ options:
         default: ''
     skip_final_cluster_snapshot:
         description:
-            - During deletion: if false, save a final snapshot of the cluster to final_cluster_snapshot_id before deleting.
+            - "During deletion: if false, save a final snapshot of the cluster to final_cluster_snapshot_id before deleting."
         required: false
         default: false
     final_cluster_snapshot_id:
