@@ -172,6 +172,7 @@ author: "Return Path (@ReturnPath, @gc1code, @LesBarstow, @trinitronx)"
 # https://boto3.readthedocs.org/en/latest/reference/services/redshift.html
 
 import time
+import json
 
 try:
     import boto3
@@ -196,6 +197,74 @@ def _describe_cluster(module, conn):
         return None
     params = dict(
         ClusterIdentifier = ClusterIdentifier
+        )
+    cluster_facts = None
+    try:
+        cluster_facts = conn.describe_clusters(**params)
+    except botocore.exceptions.ClientError, e:
+        if 'ClusterNotFound' in e:
+            return None
+
+    if not cluster_facts:
+        return None
+    if 'Clusters' not in cluster_facts:
+        return None
+    if not cluster_facts['Clusters']:
+        return None
+
+    cluster_facts = cluster_facts['Clusters'][0]
+
+    # Convert datetime.datetime object to string - exit_json isn't doing so...
+    if 'ClusterCreateTime' in cluster_facts:
+        dt=str(cluster_facts['ClusterCreateTime'])
+        cluster_facts['ClusterCreateTime'] = dt
+
+    return cluster_facts
+
+def create_cluster(module, conn):
+    required_params = [
+        'name',
+        'node_type',
+        'username',
+        'password',
+        ]
+    valid_params = [
+        'db_name',
+        'cluster_type',
+        'cluster_security_groups',
+        'vpc_security_groups',
+        'subnet',
+        'zone',
+        'maint_window',
+        'parameter_group',
+        'backup_retention',
+        'db_port',
+        'cluster_version',
+        'allow_version_upgrade',
+        'num_nodes',
+        'public',
+        'encrypted',
+        'hsm_client_cert',
+        'hsm_configuration_id',
+        'elastic_ip',
+        'kms_key_id',
+        'tags',
+        'wait',
+        'wait_timeout',
+        ]
+    validate_parameters(required_params, valid_params, module)
+
+    cluster_facts = _describe_cluster(module, conn)
+
+    if cluster_facts:
+        module.exit_json(
+          changed=False,
+          ansible_facts=json.loads(json.dumps(dict(
+          ec2_redshift=cluster_facts
+        ))))
+
+    if module.check_mode:
+        module.exit_json(changed=True)
 
     ClusterIdentifier = module.params.get('name')
     NodeType = module.params.get('node_type')
@@ -279,9 +348,9 @@ def _describe_cluster(module, conn):
 
     module.exit_json(
         changed=True,
-        ansible_facts=dict(
+        ansible_facts=json.loads(json.dumps(dict(
             cluster=response
-        )
+        )))
     )
 
 def facts_cluster(module, conn):
@@ -303,7 +372,7 @@ def facts_cluster(module, conn):
     module.exit_json(
         changed=False,
         ansible_facts=dict(
-            endpoint=cluster_facts
+            ec2_redshift=json.loads(json.dumps(cluster_facts))
             )
         )
 
@@ -363,7 +432,7 @@ def main():
         password              = dict(required=False, aliases=['master_password']),
         db_name               = dict(required=False, default='dev'),
         cluster_type          = dict(required=False, choices=['single-node','multi-node']),
-        cluster_security_groups = dict(required=False, type='list', aliases=['cluster_security_group_ids']),
+        cluster_security_groups = dict(required=False,  aliases=['cluster_security_group_ids']),
         vpc_security_groups   = dict(required=False, type='list', aliases=['vpc_security_group_ids']),
         subnet                = dict(required=False, aliases=['cluster_subnet_group_name']),
         zone                  = dict(required=False, aliases=['aws_zone', 'ec2_zone', 'availability_zone']),
