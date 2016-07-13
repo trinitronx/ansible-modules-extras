@@ -19,7 +19,7 @@ module: redshift
 short_description: add or delete redshift cluster
 description:
     - Creates and deletes redshift clusters
-version_added: "2.0"
+version_added: "2.2"
 options:
     command:
         description:
@@ -30,7 +30,7 @@ options:
         description:
             - "The name of the redshift cluster to create (eg: my-redshift-cluster)"
         required: true
-        aliases=['cluster_identifier', 'cluster_id']
+        aliases: ['cluster_identifier', 'cluster_id']
     db_name:
         description:
             - The name of the first database to be created when the cluster is created.
@@ -165,7 +165,7 @@ options:
 extends_documentation_fragment:
     - aws
     - ec2
-author: "Return Path (@ReturnPath)"
+author: "Return Path (@ReturnPath, @gc1code, @LesBarstow, @trinitronx)"
 '''
 
 # TODO: http://docs.ansible.com/ansible/developing_modules.html
@@ -202,7 +202,7 @@ def _describe_cluster(module, conn):
     cluster_facts = None
     try:
         cluster_facts = conn.describe_clusters(**params)
-    except botocore.exceptions.ClientError, e:
+    except botocore.exceptions.ClientError as e:
         if 'ClusterNotFound' in e:
             return None
 

@@ -17,7 +17,7 @@
 DOCUMENTATION = '''
 ---
 module: firehose
-version_added: "0.1"
+version_added: "2.2"
 short_description: create, delete, or modify an Amazon firehose instance
 description:
      - Creates, deletes, or modifies firehose instances. This module has a dependency on python-boto3.
@@ -165,7 +165,7 @@ def _describe_delivery_stream(module, conn):
         )
     try:
         delivery_stream = conn.describe_delivery_stream(**params)
-    except botocore.exceptions.ClientError, e:
+    except botocore.exceptions.ClientError as e:
         if 'ResourceNotFoundException' in str(e):
             return None
         else:
