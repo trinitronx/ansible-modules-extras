@@ -89,10 +89,27 @@ options:
     default: false
   cross_zones:
     description:
-      - Whether the template should be syned across zones.
-      - Only used if C(state) is present.
+      - Whether the template should be synced or removed across zones.
+      - Only used if C(state) is present or absent.
     required: false
     default: false
+  mode:
+    description:
+      - Mode for the template extraction.
+      - Only used if C(state=extracted).
+    required: false
+    default: 'http_download'
+    choices: [ 'http_download', 'ftp_upload' ]
+  domain:
+    description:
+      - Domain the template, snapshot or VM is related to.
+    required: false
+    default: null
+  account:
+    description:
+      - Account the template, snapshot or VM is related to.
+    required: false
+    default: null
   project:
     description:
       - Name of the project the template to be registered in.
@@ -115,7 +132,7 @@ options:
       - Name the hypervisor to be used for creating the new template.
       - Relevant when using C(state=present).
     required: false
-    default: none
+    default: null
     choices: [ 'KVM', 'VMware', 'BareMetal', 'XenServer', 'LXC', 'HyperV', 'UCS', 'OVM' ]
   requires_hvm:
     description:
@@ -168,7 +185,7 @@ options:
   display_text:
     description:
       - Display text of the template.
-    required: true
+    required: false
     default: null
   state:
     description:
@@ -220,6 +237,7 @@ EXAMPLES = '''
 - local_action:
     module: cs_template
     name: systemvm-4.2
+    cross_zones: yes
     state: absent
 '''
 
@@ -357,12 +375,6 @@ project:
   sample: Production
 '''
 
-try:
-    from cs import CloudStack, CloudStackException, read_config
-    has_lib_cs = True
-except ImportError:
-    has_lib_cs = False
-
 # import cloudstack common
 from ansible.module_utils.cloudstack import *
 
@@ -464,11 +476,17 @@ class AnsibleCloudStackTemplate(AnsibleCloudStack):
 
                 poll_async = self.module.params.get('poll_async')
                 if poll_async:
-                    template = self._poll_job(template, 'template')
+                    template = self.poll_job(template, 'template')
         return template
 
 
     def register_template(self):
+        required_params = [
+            'format',
+            'url',
+            'hypervisor',
+        ]
+        self.module.fail_on_missing_params(required_params=required_params)
         template = self.get_template()
         if not template:
             self.result['changed'] = True
@@ -536,9 +554,6 @@ class AnsibleCloudStackTemplate(AnsibleCloudStack):
         args['mode']   = self.module.params.get('mode')
         args['zoneid'] = self.get_zone(key='id')
 
-        if not args['url']:
-            self.module.fail_json(msg="Missing required arguments: url")
-
         self.result['changed'] = True
 
         if not self.module.check_mode:
@@ -549,7 +564,7 @@ class AnsibleCloudStackTemplate(AnsibleCloudStack):
 
             poll_async = self.module.params.get('poll_async')
             if poll_async:
-                template = self._poll_job(template, 'template')
+                template = self.poll_job(template, 'template')
         return template
 
 
@@ -560,7 +575,9 @@ class AnsibleCloudStackTemplate(AnsibleCloudStack):
 
             args            = {}
             args['id']      = template['id']
-            args['zoneid']  = self.get_zone(key='id')
+
+            if not self.module.params.get('cross_zones'):
+                args['zoneid']  = self.get_zone(key='id')
 
             if not self.module.check_mode:
                 res = self.cs.deleteTemplate(**args)
@@ -570,7 +587,7 @@ class AnsibleCloudStackTemplate(AnsibleCloudStack):
 
                 poll_async = self.module.params.get('poll_async')
                 if poll_async:
-                    res = self._poll_job(res, 'template')
+                    res = self.poll_job(res, 'template')
         return template
 
 
@@ -610,22 +627,15 @@ def main():
         poll_async = dict(type='bool', default=True),
     ))
 
-    required_together = cs_required_together()
-    required_together.extend([
-        ['format', 'url', 'hypervisor'],
-    ])
-
     module = AnsibleModule(
         argument_spec=argument_spec,
-        required_together=required_together,
+        required_together=cs_required_together(),
         mutually_exclusive = (
             ['url', 'vm'],
+            ['zone', 'cross_zones'],
         ),
         supports_check_mode=True
     )
-
-    if not has_lib_cs:
-        module.fail_json(msg="python library cs required: pip install cs")
 
     try:
         acs_tpl = AnsibleCloudStackTemplate(module)

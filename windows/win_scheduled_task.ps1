@@ -23,69 +23,52 @@ $ErrorActionPreference = "Stop"
 # POWERSHELL_COMMON
 
 $params = Parse-Args $args;
+
+$days_of_week = Get-AnsibleParam $params -anem "days_of_week"
+$enabled = Get-AnsibleParam $params -name "enabled" -default $true
+$enabled = $enabled | ConvertTo-Bool
+$description = Get-AnsibleParam $params -name "description" -default " "
+$path = Get-AnsibleParam $params -name "path"
+$argument = Get-AnsibleParam $params -name "argument"
+
 $result = New-Object PSObject;
 Set-Attr $result "changed" $false;
 
 #Required vars
-$name = Get-Attr -obj $params -name name -failifempty $true -resultobj $result
-$state = Get-Attr -obj $params -name state -failifempty $true -resultobj $result
-if( ($state -ne "present") -and ($state -ne "absent") ) {
-    Fail-Json $result "state must be present or absent"
-}
+$name = Get-AnsibleParam -obj $params -name name -failifempty $true -resultobj $result
+$state = Get-AnsibleParam -obj $params -name state -failifempty $true -resultobj $result -validateSet "present","absent"
 
 #Vars conditionally required
-if($state -eq "present") {
-    $execute = Get-Attr -obj $params -name execute -failifempty $true -resultobj $result
-    $frequency = Get-Attr -obj $params -name frequency -failifempty $true -resultobj $result
-    $time = Get-Attr -obj $params -name time -failifempty $true -resultobj $result
-    $user = Get-Attr -obj $params -name user -failifempty $true -resultobj $result
-}
-if ($params.days_of_week)
+$present_args_required = $state -eq "present"
+$execute = Get-AnsibleParam -obj $params -name execute -failifempty $present_args_required  -resultobj $result
+$frequency = Get-AnsibleParam -obj $params -name frequency -failifempty $present_args_required -resultobj $result
+$time = Get-AnsibleParam -obj $params -name time -failifempty $present_args_required -resultobj $result
+$user = Get-AnsibleParam -obj $params -name user -failifempty $present_args_required -resultobj $result
+
+
+# Mandatory Vars
+if ($frequency -eq "weekly")
 {
-    $days_of_week = $params.days_of_week
-}
-elseif ($frequency -eq "weekly")
-{
-    Fail-Json $result "missing required argument: days_of_week"
+    if (!($days_of_week))
+    {
+        Fail-Json $result "missing required argument: days_of_week"
+    }
 }
 
-# Vars with defaults
-if ($params.enabled)
+if ($path)
 {
-  $enabled = $params.enabled | ConvertTo-Bool
-}
-else
-{
-  $enabled = $true #default
-}
-if ($params.description)
-{
-  $description = $params.description
-}
-else
-{
-  $description = " "  #default
-}
-if ($params.path)
-{
-  $path = "\{0}\" -f $params.path
+  $path = "\{0}\" -f $path
 }
 else
 {
   $path = "\"  #default
 }
 
-# Optional vars
-if ($params.argument)
-{
-  $argument = $params.argument
-}
-
 try {
     $task = Get-ScheduledTask -TaskPath "$path" | Where-Object {$_.TaskName -eq "$name"}
 
     # Correlate task state to enable variable, used to calculate if state needs to be changed
-    $taskState = $task.State
+    $taskState = if ($task) { $task.State } else { $null }
     if ($taskState -eq "Ready"){
         $taskState = $true
     }

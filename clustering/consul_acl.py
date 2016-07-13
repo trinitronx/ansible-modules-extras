@@ -37,14 +37,16 @@ options:
           - a management token is required to manipulate the acl lists
     state:
         description:
-          - whether the ACL pair should be present or absent, defaults to present
+          - whether the ACL pair should be present or absent
         required: false
         choices: ['present', 'absent']
-    type:
+        default: present
+    token_type:
         description:
           - the type of token that should be created, either management or
-            client, defaults to client
+            client
         choices: ['client', 'management']
+        default: client
     name:
         description:
           - the name that should be associated with the acl key, this is opaque
@@ -69,6 +71,18 @@ options:
           - the port on which the consul agent is running
         required: false
         default: 8500
+    scheme:
+        description:
+          - the protocol scheme on which the consul agent is running
+        required: false
+        default: http
+        version_added: "2.1"
+    validate_certs:
+        description:
+          - whether to verify the tls certificate of the consul agent
+        required: false
+        default: True
+        version_added: "2.1"
 """
 
 EXAMPLES = '''
@@ -300,6 +314,8 @@ def get_consul_api(module, token=None):
         token = module.params.get('token')
     return consul.Consul(host=module.params.get('host'),
                          port=module.params.get('port'),
+                         scheme=module.params.get('scheme'),
+                         verify=module.params.get('validate_certs'),
                          token=token)
 
 def test_dependencies(module):
@@ -315,6 +331,8 @@ def main():
     argument_spec = dict(
         mgmt_token=dict(required=True, no_log=True),
         host=dict(default='localhost'),
+        scheme=dict(required=False, default='http'),
+        validate_certs=dict(required=False, default=True),
         name=dict(required=False),
         port=dict(default=8500, type='int'),
         rules=dict(default=None, required=False, type='list'),

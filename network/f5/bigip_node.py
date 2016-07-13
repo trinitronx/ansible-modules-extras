@@ -25,7 +25,9 @@ short_description: "Manages F5 BIG-IP LTM nodes"
 description:
     - "Manages F5 BIG-IP LTM nodes via iControl SOAP API"
 version_added: "1.4"
-author: "Matt Hite (@mhite)"
+author:
+    - Matt Hite (@mhite)
+    - Tim Rupp (@caphrim007)
 notes:
     - "Requires BIG-IP software version >= 11"
     - "F5 developed module 'bigsuds' required (see http://devcentral.f5.com)"
@@ -40,6 +42,12 @@ options:
         default: null
         choices: []
         aliases: []
+    server_port:
+        description:
+            - BIG-IP server port
+        required: false
+        default: 443
+        version_added: "2.2"
     user:
         description:
             - BIG-IP username
@@ -99,6 +107,30 @@ options:
         required: false
         default: null
         choices: []
+    monitor_type:
+        description:
+            - Monitor rule type when monitors > 1
+        version_added: "2.2"
+        required: False
+        default: null
+        choices: ['and_list', 'm_of_n']
+        aliases: []
+    quorum:
+        description:
+            - Monitor quorum value when monitor_type is m_of_n
+        version_added: "2.2"
+        required: False
+        default: null
+        choices: []
+        aliases: []
+    monitors:
+        description:
+            - Monitor template name list. Always use the full path to the monitor.
+        version_added: "2.2"
+        required: False
+        default: null
+        choices: []
+        aliases: []
     host:
         description:
             - "Node IP. Required when state=present and node does not exist. Error when state=absent."
@@ -140,6 +172,18 @@ EXAMPLES = '''
 # parameter but instead use the name parameter.
 # Alternatively, you could have specified a name with the
 # name parameter when state=present.
+
+  - name: Add node with a single 'ping' monitor    
+    bigip_node:
+      server: lb.mydomain.com
+      user: admin
+      password: mysecret
+      state: present
+      partition: Common
+      host: "{{ ansible_default_ipv4["address"] }}"
+      name: mytestserver
+      monitors:
+        - /Common/icmp
 
   - name: Modify node description
     local_action: >
@@ -261,15 +305,33 @@ def get_node_monitor_status(api, name):
     result = result.split("MONITOR_STATUS_")[-1].lower()
     return result
 
+def get_monitors(api, name):
+    result = api.LocalLB.NodeAddressV2.get_monitor_rule(nodes=[name])[0]
+    monitor_type = result['type'].split("MONITOR_RULE_TYPE_")[-1].lower()
+    quorum = result['quorum']
+    monitor_templates = result['monitor_templates']
+    return (monitor_type, quorum, monitor_templates)
+
+def set_monitors(api, name, monitor_type, quorum, monitor_templates):
+    monitor_type = "MONITOR_RULE_TYPE_%s" % monitor_type.strip().upper()
+    monitor_rule = {'type': monitor_type, 'quorum': quorum, 'monitor_templates': monitor_templates}
+    api.LocalLB.NodeAddressV2.set_monitor_rule(nodes=[name],
+                                               monitor_rules=[monitor_rule])
 
 def main():
-    argument_spec=f5_argument_spec();
+    monitor_type_choices = ['and_list', 'm_of_n']
+
+    argument_spec = f5_argument_spec()
+
     argument_spec.update(dict(
             session_state = dict(type='str', choices=['enabled', 'disabled']),
             monitor_state = dict(type='str', choices=['enabled', 'disabled']),
             name = dict(type='str', required=True),
             host = dict(type='str', aliases=['address', 'ip']),
-            description = dict(type='str')
+            description = dict(type='str'),
+            monitor_type = dict(type='str', choices=monitor_type_choices),
+            quorum = dict(type='int'),
+            monitors = dict(type='list')
         )
     )
 
@@ -278,7 +340,21 @@ def main():
         supports_check_mode=True
     )
 
-    (server,user,password,state,partition,validate_certs) = f5_parse_arguments(module)
+    if not bigsuds_found:
+        module.fail_json(msg="the python bigsuds module is required")
+
+    if module.params['validate_certs']:
+        import ssl
+        if not hasattr(ssl, 'SSLContext'):
+            module.fail_json(msg='bigsuds does not support verifying certificates with python < 2.7.9.  Either update python or set validate_certs=False on the task')
+
+    server = module.params['server']
+    server_port = module.params['server_port']
+    user = module.params['user']
+    password = module.params['password']
+    state = module.params['state']
+    partition = module.params['partition']
+    validate_certs = module.params['validate_certs']
 
     session_state = module.params['session_state']
     monitor_state = module.params['monitor_state']
@@ -286,12 +362,42 @@ def main():
     name = module.params['name']
     address = fq_name(partition, name)
     description = module.params['description']
+    monitor_type = module.params['monitor_type']
+    if monitor_type:
+        monitor_type = monitor_type.lower()
+    quorum = module.params['quorum']
+    monitors = module.params['monitors']
+    if monitors:
+        monitors = []
+        for monitor in module.params['monitors']:
+                monitors.append(fq_name(partition, monitor))
+
+    # sanity check user supplied values
 
     if state == 'absent' and host is not None:
         module.fail_json(msg="host parameter invalid when state=absent")
 
+    if monitors:
+        if len(monitors) == 1:
+            # set default required values for single monitor
+            quorum = 0
+            monitor_type = 'single'
+        elif len(monitors) > 1:
+            if not monitor_type:
+                module.fail_json(msg="monitor_type required for monitors > 1")
+            if monitor_type == 'm_of_n' and not quorum:
+                module.fail_json(msg="quorum value required for monitor_type m_of_n")
+            if monitor_type != 'm_of_n':
+                quorum = 0
+    elif monitor_type:
+        # no monitors specified but monitor_type exists
+        module.fail_json(msg="monitor_type require monitors parameter")
+    elif quorum is not None:
+        # no monitors specified but quorum exists
+        module.fail_json(msg="quorum requires monitors parameter")
+
     try:
-        api = bigip_api(server, user, password, validate_certs)
+        api = bigip_api(server, user, password, validate_certs, port=server_port)
         result = {'changed': False}  # default
 
         if state == 'absent':
@@ -327,6 +433,8 @@ def main():
                     if description is not None:
                         set_node_description(api, address, description)
                         result = {'changed': True}
+                    if monitors:
+                        set_monitors(api, address, monitor_type, quorum, monitors)
                 else:
                     # check-mode return value
                     result = {'changed': True}
@@ -370,6 +478,12 @@ def main():
                         if not module.check_mode:
                             set_node_description(api, address, description)
                         result = {'changed': True}
+                if monitors:
+                    t_monitor_type, t_quorum, t_monitor_templates = get_monitors(api, address)
+                    if (t_monitor_type != monitor_type) or (t_quorum != quorum) or (set(t_monitor_templates) != set(monitors)):
+                        if not module.check_mode:
+                            set_monitors(api, address, monitor_type, quorum, monitors)
+                        result = {'changed': True}
 
     except Exception, e:
         module.fail_json(msg="received exception: %s" % e)
@@ -379,5 +493,6 @@ def main():
 # import module snippets
 from ansible.module_utils.basic import *
 from ansible.module_utils.f5 import *
-main()
 
+if __name__ == '__main__':
+    main()

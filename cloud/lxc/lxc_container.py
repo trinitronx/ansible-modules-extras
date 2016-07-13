@@ -57,7 +57,7 @@ options:
         description:
           - Path to the LXC configuration file.
         required: false
-        default: /etc/lxc/default.conf
+        default: null
     lv_name:
         description:
           - Name of the logical volume, defaults to the container name.
@@ -144,7 +144,7 @@ options:
         description:
           - Path the save the archived container. If the path does not exist
             the archive method will attempt to create it.
-        default: /tmp
+        default: null
     archive_compression:
         choices:
           - gzip
@@ -381,6 +381,50 @@ EXAMPLES = """
     - test-container-new-archive-destroyed-clone
 """
 
+RETURN="""
+lxc_container:
+    description: container information
+    returned: success
+    type: list
+    contains:
+        name:
+            description: name of the lxc container
+            returned: success
+            type: string
+            sample: test_host
+        init_pid:
+            description: pid of the lxc init process
+            returned: success
+            type: int
+            sample: 19786
+        interfaces:
+            description: list of the container's network interfaces
+            returned: success
+            type: list
+            sample: [ "eth0", "lo" ]
+        ips:
+            description: list of ips
+            returned: success
+            type: list
+            sample: [ "10.0.3.3" ]
+        state:
+            description: resulting state of the container
+            returned: success
+            type: string
+            sample: "running"
+        archive:
+            description: resulting state of the container
+            returned: success, when archive is true
+            type: string
+            sample: "/tmp/test-container-config.tar"
+        clone:
+            description: if the container was cloned
+            returned: success, when clone_name is specified
+            type: boolean
+            sample: True
+"""
+
+import re
 
 try:
     import lxc
@@ -515,13 +559,8 @@ def create_script(command):
     import subprocess
     import tempfile
 
-    # Ensure that the directory /opt exists.
-    if not path.isdir('/opt'):
-        os.mkdir('/opt')
-
-    # Create the script.
-    script_file = path.join('/opt', '.lxc-attach-script')
-    f = open(script_file, 'wb')
+    (fd, script_file) = tempfile.mkstemp(prefix='lxc-attach-script')
+    f = os.fdopen(fd, 'wb')
     try:
         f.write(ATTACH_TEMPLATE % {'container_command': command})
         f.flush()
@@ -529,16 +568,13 @@ def create_script(command):
         f.close()
 
     # Ensure the script is executable.
-    os.chmod(script_file, 1755)
-
-    # Get temporary directory.
-    tempdir = tempfile.gettempdir()
+    os.chmod(script_file, int('0700',8))
 
     # Output log file.
-    stdout_file = open(path.join(tempdir, 'lxc-attach-script.log'), 'ab')
+    stdout_file = os.fdopen(tempfile.mkstemp(prefix='lxc-attach-script-log')[0], 'ab')
 
     # Error log file.
-    stderr_file = open(path.join(tempdir, 'lxc-attach-script.err'), 'ab')
+    stderr_file = os.fdopen(tempfile.mkstemp(prefix='lxc-attach-script-err')[0], 'ab')
 
     # Execute the script command.
     try:
@@ -567,6 +603,7 @@ class LxcContainerManagement(object):
         self.state = self.module.params.get('state', None)
         self.state_change = False
         self.lxc_vg = None
+        self.lxc_path = self.module.params.get('lxc_path', None)
         self.container_name = self.module.params['name']
         self.container = self.get_container_bind()
         self.archive_info = None
@@ -591,7 +628,7 @@ class LxcContainerManagement(object):
         return num
 
     @staticmethod
-    def _container_exists(container_name):
+    def _container_exists(container_name, lxc_path=None):
         """Check if a container exists.
 
         :param container_name: Name of the container.
@@ -599,7 +636,7 @@ class LxcContainerManagement(object):
         :returns: True or False if the container is found.
         :rtype: ``bol``
         """
-        if [i for i in lxc.list_containers() if i == container_name]:
+        if [i for i in lxc.list_containers(config_path=lxc_path) if i == container_name]:
             return True
         else:
             return False
@@ -711,10 +748,13 @@ class LxcContainerManagement(object):
 
         config_change = False
         for key, value in parsed_options:
+            key = key.strip()
+            value = value.strip()
             new_entry = '%s = %s\n' % (key, value)
+            keyre = re.compile(r'%s(\s+)?=' % key)
             for option_line in container_config:
                 # Look for key in config
-                if option_line.startswith(key):
+                if keyre.match(option_line):
                     _, _value = option_line.split('=', 1)
                     config_value = ' '.join(_value.split())
                     line_index = container_config.index(option_line)
@@ -880,7 +920,8 @@ class LxcContainerManagement(object):
             'interfaces': self.container.get_interfaces(),
             'ips': self.container.get_ips(),
             'state': self._get_state(),
-            'init_pid': int(self.container.init_pid)
+            'init_pid': int(self.container.init_pid),
+            'name' : self.container_name,
         }
 
     def _unfreeze(self):
@@ -904,7 +945,7 @@ class LxcContainerManagement(object):
         :rtype: ``str``
         """
 
-        if self._container_exists(container_name=self.container_name):
+        if self._container_exists(container_name=self.container_name, lxc_path=self.lxc_path):
             return str(self.container.state).lower()
         else:
             return str('absent')
@@ -969,7 +1010,7 @@ class LxcContainerManagement(object):
 
         clone_name = self.module.params.get('clone_name')
         if clone_name:
-            if not self._container_exists(container_name=clone_name):
+            if not self._container_exists(container_name=clone_name, lxc_path=self.lxc_path):
                 self.clone_info = {
                     'cloned': self._container_create_clone()
                 }
@@ -986,7 +1027,7 @@ class LxcContainerManagement(object):
         """
 
         for _ in xrange(timeout):
-            if not self._container_exists(container_name=self.container_name):
+            if not self._container_exists(container_name=self.container_name, lxc_path=self.lxc_path):
                 break
 
             # Check if the container needs to have an archive created.
@@ -1025,7 +1066,7 @@ class LxcContainerManagement(object):
         """
 
         self.check_count(count=count, method='frozen')
-        if self._container_exists(container_name=self.container_name):
+        if self._container_exists(container_name=self.container_name, lxc_path=self.lxc_path):
             self._execute_command()
 
             # Perform any configuration updates
@@ -1062,7 +1103,7 @@ class LxcContainerManagement(object):
         """
 
         self.check_count(count=count, method='restart')
-        if self._container_exists(container_name=self.container_name):
+        if self._container_exists(container_name=self.container_name, lxc_path=self.lxc_path):
             self._execute_command()
 
             # Perform any configuration updates
@@ -1095,7 +1136,7 @@ class LxcContainerManagement(object):
         """
 
         self.check_count(count=count, method='stop')
-        if self._container_exists(container_name=self.container_name):
+        if self._container_exists(container_name=self.container_name, lxc_path=self.lxc_path):
             self._execute_command()
 
             # Perform any configuration updates
@@ -1125,7 +1166,7 @@ class LxcContainerManagement(object):
         """
 
         self.check_count(count=count, method='start')
-        if self._container_exists(container_name=self.container_name):
+        if self._container_exists(container_name=self.container_name, lxc_path=self.lxc_path):
             container_state = self._get_state()
             if container_state == 'running':
                 pass
@@ -1331,6 +1372,8 @@ class LxcContainerManagement(object):
         :type source_dir: ``str``
         """
 
+        old_umask = os.umask(int('0077',8))
+
         archive_path = self.module.params.get('archive_path')
         if not os.path.isdir(archive_path):
             os.makedirs(archive_path)
@@ -1361,6 +1404,9 @@ class LxcContainerManagement(object):
             build_command=build_command,
             unsafe_shell=True
         )
+
+        os.umask(old_umask)
+
         if rc != 0:
             self.failure(
                 err=err,
@@ -1643,8 +1689,7 @@ def main():
                 type='str'
             ),
             config=dict(
-                type='str',
-                default='/etc/lxc/default.conf'
+                type='path',
             ),
             vg_name=dict(
                 type='str',
@@ -1662,7 +1707,7 @@ def main():
                 default='5G'
             ),
             directory=dict(
-                type='str'
+                type='path'
             ),
             zfs_root=dict(
                 type='str'
@@ -1671,7 +1716,7 @@ def main():
                 type='str'
             ),
             lxc_path=dict(
-                type='str'
+                type='path'
             ),
             state=dict(
                 choices=LXC_ANSIBLE_STATES.keys(),
@@ -1704,8 +1749,7 @@ def main():
                 default='false'
             ),
             archive_path=dict(
-                type='str',
-                default='/tmp'
+                type='path',
             ),
             archive_compression=dict(
                 choices=LXC_COMPRESSION_MAP.keys(),
@@ -1713,6 +1757,9 @@ def main():
             )
         ),
         supports_check_mode=False,
+        required_if = ([
+            ('archive', True, ['archive_path'])
+        ]),
     )
 
     if not HAS_LXC:
@@ -1730,4 +1777,5 @@ def main():
 
 # import module bits
 from ansible.module_utils.basic import *
-main()
+if __name__ == '__main__':
+    main()

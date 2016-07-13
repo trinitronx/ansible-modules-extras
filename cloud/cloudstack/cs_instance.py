@@ -87,6 +87,15 @@ options:
       - Mutually exclusive with C(template) option.
     required: false
     default: null
+  template_filter:
+    description:
+      - Name of the filter used to search for the template or iso.
+      - Used for params C(iso) or C(template) on C(state=present).
+    required: false
+    default: 'executable'
+    choices: [ 'featured', 'self', 'selfexecutable', 'sharedexecutable', 'executable', 'community' ]
+    aliases: [ 'iso_filter' ]
+    version_added: '2.1'
   hypervisor:
     description:
       - Name the hypervisor to be used for creating the new instance.
@@ -387,12 +396,6 @@ instance_name:
 
 import base64
 
-try:
-    from cs import CloudStack, CloudStackException, read_config
-    has_lib_cs = True
-except ImportError:
-    has_lib_cs = False
-
 # import cloudstack common
 from ansible.module_utils.cloudstack import *
 
@@ -450,7 +453,7 @@ class AnsibleCloudStackInstance(AnsibleCloudStack):
             if self.template:
                 return self._get_by_key(key, self.template)
 
-            args['templatefilter'] = 'executable'
+            args['templatefilter'] = self.module.params.get('template_filter')
             templates = self.cs.listTemplates(**args)
             if templates:
                 for t in templates['template']:
@@ -462,7 +465,7 @@ class AnsibleCloudStackInstance(AnsibleCloudStack):
         elif iso:
             if self.iso:
                 return self._get_by_key(key, self.iso)
-            args['isofilter'] = 'executable'
+            args['isofilter'] = self.module.params.get('template_filter')
             isos = self.cs.listIsos(**args)
             if isos:
                 for i in isos['iso']:
@@ -663,7 +666,7 @@ class AnsibleCloudStackInstance(AnsibleCloudStack):
 
             poll_async = self.module.params.get('poll_async')
             if poll_async:
-                instance = self._poll_job(instance, 'virtualmachine')
+                instance = self.poll_job(instance, 'virtualmachine')
         return instance
 
 
@@ -673,7 +676,7 @@ class AnsibleCloudStackInstance(AnsibleCloudStack):
         args_service_offering['id'] = instance['id']
         if self.module.params.get('service_offering'):
             args_service_offering['serviceofferingid'] = self.get_service_offering_id()
-        service_offering_changed = self._has_changed(args_service_offering, instance)
+        service_offering_changed = self.has_changed(args_service_offering, instance)
 
         # Instance data
         args_instance_update = {}
@@ -684,7 +687,7 @@ class AnsibleCloudStackInstance(AnsibleCloudStack):
             args_instance_update['group'] = self.module.params.get('group')
         if self.module.params.get('display_name'):
             args_instance_update['displayname'] = self.module.params.get('display_name')
-        instance_changed = self._has_changed(args_instance_update, instance)
+        instance_changed = self.has_changed(args_instance_update, instance)
 
         # SSH key data
         args_ssh_key = {}
@@ -692,7 +695,7 @@ class AnsibleCloudStackInstance(AnsibleCloudStack):
         args_ssh_key['projectid'] = self.get_project(key='id')
         if self.module.params.get('ssh_key'):
             args_ssh_key['keypair'] = self.module.params.get('ssh_key')
-        ssh_key_changed = self._has_changed(args_ssh_key, instance)
+        ssh_key_changed = self.has_changed(args_ssh_key, instance)
 
         security_groups_changed = self.security_groups_has_changed()
 
@@ -712,7 +715,7 @@ class AnsibleCloudStackInstance(AnsibleCloudStack):
 
                     # Ensure VM has stopped
                     instance = self.stop_instance()
-                    instance = self._poll_job(instance, 'virtualmachine')
+                    instance = self.poll_job(instance, 'virtualmachine')
                     self.instance = instance
 
                     # Change service offering
@@ -739,7 +742,7 @@ class AnsibleCloudStackInstance(AnsibleCloudStack):
                         if 'errortext' in instance:
                             self.module.fail_json(msg="Failed: '%s'" % instance['errortext'])
 
-                        instance = self._poll_job(instance, 'virtualmachine')
+                        instance = self.poll_job(instance, 'virtualmachine')
                         self.instance = instance
 
                     # Start VM again if it was running before
@@ -772,7 +775,7 @@ class AnsibleCloudStackInstance(AnsibleCloudStack):
 
                     poll_async = self.module.params.get('poll_async')
                     if poll_async:
-                        instance = self._poll_job(res, 'virtualmachine')
+                        instance = self.poll_job(res, 'virtualmachine')
         return instance
 
 
@@ -795,7 +798,7 @@ class AnsibleCloudStackInstance(AnsibleCloudStack):
 
             poll_async = self.module.params.get('poll_async')
             if poll_async:
-                res = self._poll_job(res, 'virtualmachine')
+                res = self.poll_job(res, 'virtualmachine')
         return instance
 
 
@@ -816,7 +819,7 @@ class AnsibleCloudStackInstance(AnsibleCloudStack):
 
                     poll_async = self.module.params.get('poll_async')
                     if poll_async:
-                        instance = self._poll_job(instance, 'virtualmachine')
+                        instance = self.poll_job(instance, 'virtualmachine')
         return instance
 
 
@@ -837,7 +840,7 @@ class AnsibleCloudStackInstance(AnsibleCloudStack):
 
                     poll_async = self.module.params.get('poll_async')
                     if poll_async:
-                        instance = self._poll_job(instance, 'virtualmachine')
+                        instance = self.poll_job(instance, 'virtualmachine')
         return instance
 
 
@@ -855,7 +858,7 @@ class AnsibleCloudStackInstance(AnsibleCloudStack):
 
                     poll_async = self.module.params.get('poll_async')
                     if poll_async:
-                        instance = self._poll_job(instance, 'virtualmachine')
+                        instance = self.poll_job(instance, 'virtualmachine')
 
             elif instance['state'].lower() in [ 'stopping', 'stopped' ]:
                 instance = self.start_instance()
@@ -876,7 +879,7 @@ class AnsibleCloudStackInstance(AnsibleCloudStack):
 
             poll_async = self.module.params.get('poll_async')
             if poll_async:
-                instance = self._poll_job(res, 'virtualmachine')
+                instance = self.poll_job(res, 'virtualmachine')
         return instance
 
 
@@ -913,6 +916,7 @@ def main():
         memory = dict(default=None, type='int'),
         template = dict(default=None),
         iso = dict(default=None),
+        template_filter = dict(default="executable", aliases=['iso_filter'], choices=['featured', 'self', 'selfexecutable', 'sharedexecutable', 'executable', 'community']),
         networks = dict(type='list', aliases=[ 'network' ], default=None),
         ip_to_networks = dict(type='list', aliases=['ip_to_network'], default=None),
         ip_address = dict(defaul=None),
@@ -951,9 +955,6 @@ def main():
         ),
         supports_check_mode=True
     )
-
-    if not has_lib_cs:
-        module.fail_json(msg="python library cs required: pip install cs")
 
     try:
         acs_instance = AnsibleCloudStackInstance(module)

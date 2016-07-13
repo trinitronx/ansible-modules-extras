@@ -25,6 +25,15 @@ from lxml import etree
 import os
 import hashlib
 import sys
+import posixpath
+import urlparse
+from ansible.module_utils.basic import *
+from ansible.module_utils.urls import *
+try:
+    import boto3
+    HAS_BOTO = True
+except ImportError:
+    HAS_BOTO = False
 
 DOCUMENTATION = '''
 ---
@@ -39,6 +48,7 @@ author: "Chris Schmidt (@chrisisbeef)"
 requirements:
     - "python >= 2.6"
     - lxml
+    - boto if using a S3 repository (s3://...)
 options:
     group_id:
         description:
@@ -54,30 +64,33 @@ options:
         required: false
         default: latest
     classifier:
-        description: 
+        description:
             - The maven classifier coordinate
         required: false
         default: null
     extension:
-        description: 
+        description:
             - The maven type/extension coordinate
         required: false
         default: jar
     repository_url:
-        description: 
-            - The URL of the Maven Repository to download from
+        description:
+            - The URL of the Maven Repository to download from.
+            - Use s3://... if the repository is hosted on Amazon S3, added in version 2.2.
         required: false
         default: http://repo1.maven.org/maven2
     username:
         description:
-            - The username to authenticate as to the Maven Repository
+            - The username to authenticate as to the Maven Repository. Use AWS secret key of the repository is hosted on S3
         required: false
         default: null
+        aliases: [ "aws_secret_key" ]
     password:
         description:
-            - The password to authenticate with to the Maven Repository
+            - The password to authenticate with to the Maven Repository. Use AWS secret access key of the repository is hosted on S3
         required: false
         default: null
+        aliases: [ "aws_secret_access_key" ]
     dest:
         description:
             - The path where the artifact should be written to
@@ -90,7 +103,7 @@ options:
         default: present
         choices: [present,absent]
     validate_certs:
-        description: 
+        description:
             - If C(no), SSL certificates will not be validated. This should only be set to C(no) when no other option exists.
         required: false
         default: 'yes'
@@ -133,9 +146,9 @@ class Artifact(object):
         return self.version and self.version.endswith("SNAPSHOT")
 
     def path(self, with_version=True):
-        base = self.group_id.replace(".", "/") + "/" + self.artifact_id
+        base = posixpath.join(self.group_id.replace(".", "/"), self.artifact_id)
         if with_version and self.version:
-            return base + "/" + self.version
+            return posixpath.join(base, self.version)
         else:
             return base
 
@@ -195,14 +208,17 @@ class MavenDownloader:
             return v[0]
 
     def find_uri_for_artifact(self, artifact):
+        if artifact.version == "latest":
+            artifact.version = self._find_latest_version_available(artifact)
+
         if artifact.is_snapshot():
             path = "/%s/maven-metadata.xml" % (artifact.path())
             xml = self._request(self.base + path, "Failed to download maven-metadata.xml", lambda r: etree.parse(r))
             timestamp = xml.xpath("/metadata/versioning/snapshot/timestamp/text()")[0]
             buildNumber = xml.xpath("/metadata/versioning/snapshot/buildNumber/text()")[0]
             return self._uri_for_artifact(artifact, artifact.version.replace("SNAPSHOT", timestamp + "-" + buildNumber))
-        else:
-            return self._uri_for_artifact(artifact)
+
+        return self._uri_for_artifact(artifact, artifact.version)
 
     def _uri_for_artifact(self, artifact, version=None):
         if artifact.is_snapshot() and not version:
@@ -210,19 +226,28 @@ class MavenDownloader:
         elif not artifact.is_snapshot():
             version = artifact.version
         if artifact.classifier:
-            return self.base + "/" + artifact.path() + "/" + artifact.artifact_id + "-" + version + "-" + artifact.classifier + "." + artifact.extension
+            return posixpath.join(self.base, artifact.path(), artifact.artifact_id + "-" + version + "-" + artifact.classifier + "." + artifact.extension)
 
-        return self.base + "/" + artifact.path() + "/" + artifact.artifact_id + "-" + version + "." + artifact.extension
+        return posixpath.join(self.base, artifact.path(), artifact.artifact_id + "-" + version + "." + artifact.extension)
 
     def _request(self, url, failmsg, f):
+        url_to_use = url
+        parsed_url = urlparse(url)
+        if parsed_url.scheme=='s3':
+                parsed_url = urlparse(url)
+                bucket_name = parsed_url.netloc[:parsed_url.netloc.find('.')]
+                key_name = parsed_url.path[1:]
+                client = boto3.client('s3',aws_access_key_id=self.module.params.get('username', ''), aws_secret_access_key=self.module.params.get('password', ''))
+                url_to_use = client.generate_presigned_url('get_object',Params={'Bucket':bucket_name,'Key':key_name},ExpiresIn=10)
+
         # Hack to add parameters in the way that fetch_url expects
         self.module.params['url_username'] = self.module.params.get('username', '')
         self.module.params['url_password'] = self.module.params.get('password', '')
         self.module.params['http_agent'] = self.module.params.get('user_agent', None)
 
-        response, info = fetch_url(self.module, url)
+        response, info = fetch_url(self.module, url_to_use)
         if info['status'] != 200:
-            raise ValueError(failmsg + " because of " + info['msg'] + "for URL " + url)
+            raise ValueError(failmsg + " because of " + info['msg'] + "for URL " + url_to_use)
         else:
             return f(response)
 
@@ -237,9 +262,10 @@ class MavenDownloader:
         if not self.verify_md5(filename, url + ".md5"):
             response = self._request(url, "Failed to download artifact " + str(artifact), lambda r: r)
             if response:
-                with open(filename, 'w') as f:
-                    # f.write(response.read())
-                    self._write_chunks(response, f, report_hook=self.chunk_report)
+                f = open(filename, 'w')
+                # f.write(response.read())
+                self._write_chunks(response, f, report_hook=self.chunk_report)
+                f.close()
                 return True
             else:
                 return False
@@ -283,9 +309,10 @@ class MavenDownloader:
 
     def _local_md5(self, file):
         md5 = hashlib.md5()
-        with open(file, 'rb') as f:
-            for chunk in iter(lambda: f.read(8192), ''):
-                md5.update(chunk)
+        f = open(file, 'rb')
+        for chunk in iter(lambda: f.read(8192), ''):
+            md5.update(chunk)
+        f.close()
         return md5.hexdigest()
 
 
@@ -298,13 +325,21 @@ def main():
             classifier = dict(default=None),
             extension = dict(default='jar'),
             repository_url = dict(default=None),
-            username = dict(default=None),
-            password = dict(default=None),
+            username = dict(default=None,aliases=['aws_secret_key']),
+            password = dict(default=None, no_log=True,aliases=['aws_secret_access_key']),
             state = dict(default="present", choices=["present","absent"]), # TODO - Implement a "latest" state
             dest = dict(type="path", default=None),
             validate_certs = dict(required=False, default=True, type='bool'),
         )
     )
+
+    try:
+        parsed_url = urlparse(module.params["repository_url"])
+    except AttributeError as e:
+        module.fail_json(msg='url parsing went wrong %s' % e)
+
+    if parsed_url.scheme=='s3' and not HAS_BOTO:
+        module.fail_json(msg='boto3 required for this module, when using s3:// repository URLs')
 
     group_id = module.params["group_id"]
     artifact_id = module.params["artifact_id"]
@@ -330,12 +365,9 @@ def main():
 
     prev_state = "absent"
     if os.path.isdir(dest):
-        dest = dest + "/" + artifact_id + "-" + version + "." + extension
-    if os.path.lexists(dest):
-        if not artifact.is_snapshot():
-            prev_state = "present"
-        elif downloader.verify_md5(dest, downloader.find_uri_for_artifact(artifact) + '.md5'):
-            prev_state = "present"
+        dest = posixpath.join(dest, artifact_id + "-" + version + "." + extension)
+    if os.path.lexists(dest) and downloader.verify_md5(dest, downloader.find_uri_for_artifact(artifact) + '.md5'):
+        prev_state = "present"
     else:
         path = os.path.dirname(dest)
         if not os.path.exists(path):
@@ -353,8 +385,6 @@ def main():
         module.fail_json(msg=e.args[0])
 
 
-# import module snippets
-from ansible.module_utils.basic import *
-from ansible.module_utils.urls import *
+
 if __name__ == '__main__':
     main()

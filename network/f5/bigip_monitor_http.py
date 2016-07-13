@@ -27,7 +27,9 @@ short_description: "Manages F5 BIG-IP LTM http monitors"
 description:
     - "Manages F5 BIG-IP LTM monitors via iControl SOAP API"
 version_added: "1.4"
-author: "Serge van Ginderachter (@srvg)"
+author:
+    - Serge van Ginderachter (@srvg)
+    - Tim Rupp (@caphrim007)
 notes:
     - "Requires BIG-IP software version >= 11"
     - "F5 developed module 'bigsuds' required (see http://devcentral.f5.com)"
@@ -41,6 +43,12 @@ options:
             - BIG-IP host
         required: true
         default: null
+    server_port:
+        description:
+            - BIG-IP server port
+        required: false
+        default: 443
+        version_added: "2.2"
     user:
         description:
             - BIG-IP username
@@ -250,7 +258,7 @@ def check_integer_property(api, monitor, int_property):
 
 def set_integer_property(api, monitor, int_property):
 
-    api.LocalLB.Monitor.set_template_int_property(template_names=[monitor], values=[int_property])
+    api.LocalLB.Monitor.set_template_integer_property(template_names=[monitor], values=[int_property])
 
 
 def update_monitor_properties(api, module, monitor, template_string_properties, template_integer_properties):
@@ -317,7 +325,21 @@ def main():
         supports_check_mode=True
     )
 
-    (server,user,password,state,partition,validate_certs) = f5_parse_arguments(module)
+    if not bigsuds_found:
+        module.fail_json(msg="the python bigsuds module is required")
+
+    if module.params['validate_certs']:
+        import ssl
+        if not hasattr(ssl, 'SSLContext'):
+            module.fail_json(msg='bigsuds does not support verifying certificates with python < 2.7.9.  Either update python or set validate_certs=False on the task')
+
+    server = module.params['server']
+    server_port = module.params['server_port']
+    user = module.params['user']
+    password = module.params['password']
+    state = module.params['state']
+    partition = module.params['partition']
+    validate_certs = module.params['validate_certs']
 
     parent_partition = module.params['parent_partition']
     name = module.params['name']
@@ -334,7 +356,7 @@ def main():
 
     # end monitor specific stuff
 
-    api = bigip_api(server, user, password, validate_certs)
+    api = bigip_api(server, user, password, validate_certs, port=server_port)
     monitor_exists = check_monitor_exists(module, api, monitor, parent)
 
 
@@ -445,5 +467,6 @@ def main():
 # import module snippets
 from ansible.module_utils.basic import *
 from ansible.module_utils.f5 import *
-main()
 
+if __name__ == '__main__':
+    main()

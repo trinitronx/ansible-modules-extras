@@ -43,7 +43,7 @@ options:
     aliases: []
   data:
     description:
-      - Registry Value Data
+      - Registry Value Data.  Binary data should be expressed a yaml byte array or as comma separated hex values.  An easy way to generate this is to run C(regedit.exe) and use the I(Export) option to save the registry values to a file.  In the exported file binary values will look like C(hex:be,ef,be,ef).  The C(hex:) prefix is optional. 
     required: false
     default: null
     aliases: []
@@ -94,6 +94,26 @@ EXAMPLES = '''
     data: 1337
     datatype: dword
 
+  # Creates Registry Key called MyCompany,
+  # a value within MyCompany Key called "hello", and
+  # binary data for the value "hello" as type "binary"
+  # data expressed as comma separated list
+  win_regedit:
+    key: HKCU:\Software\MyCompany
+    value: hello
+    data: hex:be,ef,be,ef,be,ef,be,ef,be,ef
+    datatype: binary
+
+  # Creates Registry Key called MyCompany,
+  # a value within MyCompany Key called "hello", and
+  # binary data for the value "hello" as type "binary"
+  # data expressed as yaml array of bytes
+  win_regedit:
+    key: HKCU:\Software\MyCompany
+    value: hello
+    data: [0xbe,0xef,0xbe,0xef,0xbe,0xef,0xbe,0xef,0xbe,0xef]
+    datatype: binary
+
   # Delete Registry Key MyCompany
   # NOTE: Not specifying a value will delete the root key which means
   # all values will be deleted
@@ -106,4 +126,22 @@ EXAMPLES = '''
     key: HKCU:\Software\MyCompany
     value: hello
     state: absent
+
+  # Ensure registry paths containing spaces are quoted.
+  # Creates Registry Key called 'My Company'.
+  win_regedit:
+    key: 'HKCU:\Software\My Company'
+
+'''
+RETURN = '''
+data_changed:
+    description: whether this invocation changed the data in the registry value 
+    returned: success
+    type: boolean
+    sample: False
+data_type_changed:
+    description: whether this invocation changed the datatype of the registry value 
+    returned: success
+    type: boolean
+    sample: True
 '''

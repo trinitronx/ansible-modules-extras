@@ -98,7 +98,14 @@ options:
       - specifies network interfaces for the container
     default: null
     required: false
-    type: string
+    type:  A hash/dictionary defining interfaces
+  mounts:
+    description:
+      - specifies additional mounts (separate disks) for the container
+    default: null
+    required: false
+    type:  A hash/dictionary defining mount points
+    version_added: "2.2"
   ip_address:
     description:
       - specifies the address the container will be assigned
@@ -171,6 +178,12 @@ EXAMPLES = '''
 # Create new container with minimal options use environment PROXMOX_PASSWORD variable(you should export it before)
 - proxmox: vmid=100 node='uk-mc02' api_user='root@pam' api_host='node1' password='123456' hostname='example.org' ostemplate='local:vztmpl/ubuntu-14.04-x86_64.tar.gz'
 
+# Create new container with minimal options defining network interface with dhcp
+- proxmox: vmid=100 node='uk-mc02' api_user='root@pam' api_password='1q2w3e' api_host='node1' password='123456' hostname='example.org' ostemplate='local:vztmpl/ubuntu-14.04-x86_64.tar.gz' netif='{"net0":"name=eth0,ip=dhcp,ip6=dhcp,bridge=vmbr0"}'
+
+# Create new container with minimal options defining a mount
+- proxmox: vmid=100 node='uk-mc02' api_user='root@pam' api_password='1q2w3e' api_host='node1' password='123456' hostname='example.org' ostemplate='local:vztmpl/ubuntu-14.04-x86_64.tar.gz' mounts='{"mp0":"local:8,mp=/mnt/test/"}'
+
 # Start container
 - proxmox: vmid=100 api_user='root@pam' api_password='1q2w3e' api_host='node1' state=started
 
@@ -213,6 +226,12 @@ def create_instance(module, proxmox, vmid, node, disk, storage, cpus, memory, sw
   if VZ_TYPE =='lxc':
       kwargs['cpulimit']=cpus
       kwargs['rootfs']=disk
+      if 'netif' in kwargs:
+        kwargs.update(kwargs['netif'])
+        del kwargs['netif']
+      if 'mounts' in kwargs:
+        kwargs.update(kwargs['mounts'])
+        del kwargs['mounts']
   else:
       kwargs['cpus']=cpus
       kwargs['disk']=disk
@@ -287,11 +306,12 @@ def main():
       password = dict(no_log=True),
       hostname = dict(),
       ostemplate = dict(),
-      disk = dict(type='int', default=3),
+      disk = dict(type='str', default='3'),
       cpus = dict(type='int', default=1),
       memory = dict(type='int', default=512),
       swap = dict(type='int', default=0),
-      netif = dict(),
+      netif = dict(type='dict'),
+      mounts = dict(type='dict'),
       ip_address = dict(),
       onboot = dict(type='bool', default='no'),
       storage = dict(default='local'),
@@ -353,6 +373,7 @@ def main():
                       hostname = module.params['hostname'],
                       ostemplate = module.params['ostemplate'],
                       netif = module.params['netif'],
+                      mounts = module.params['mounts'],
                       ip_address = module.params['ip_address'],
                       onboot = int(module.params['onboot']),
                       cpuunits = module.params['cpuunits'],

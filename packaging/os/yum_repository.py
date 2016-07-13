@@ -21,6 +21,7 @@
 
 import ConfigParser
 import os
+from ansible.module_utils.pycompat24 import get_exception
 
 
 DOCUMENTATION = '''
@@ -272,7 +273,8 @@ options:
     required: false
     default: null
     description:
-      - URL to the proxy server that yum should use.
+      - URL to the proxy server that yum should use. Set to C(_none_) to disable
+        the global proxy setting.
   proxy_password:
     required: false
     default: null
@@ -574,7 +576,8 @@ class YumRepo(object):
             # Write data into the file
             try:
                 fd = open(self.params['dest'], 'wb')
-            except IOError, e:
+            except IOError:
+                e = get_exception()
                 self.module.fail_json(
                     msg="Cannot open repo file %s." % self.params['dest'],
                     details=str(e))
@@ -583,7 +586,8 @@ class YumRepo(object):
 
             try:
                 fd.close()
-            except IOError, e:
+            except IOError:
+                e = get_exception()
                 self.module.fail_json(
                     msg="Cannot write repo file %s." % self.params['dest'],
                     details=str(e))
@@ -591,7 +595,8 @@ class YumRepo(object):
             # Remove the file if there are not repos
             try:
                 os.remove(self.params['dest'])
-            except OSError, e:
+            except OSError:
+                e = get_exception()
                 self.module.fail_json(
                     msg=(
                         "Cannot remove empty repo file %s." %
@@ -654,7 +659,7 @@ def main():
             mirrorlist=dict(),
             mirrorlist_expire=dict(),
             name=dict(required=True),
-            params=dict(),
+            params=dict(type='dict'),
             password=dict(no_log=True),
             priority=dict(),
             protect=dict(type='bool'),
@@ -662,7 +667,7 @@ def main():
             proxy_password=dict(no_log=True),
             proxy_username=dict(),
             repo_gpgcheck=dict(type='bool'),
-            reposdir=dict(default='/etc/yum.repos.d'),
+            reposdir=dict(default='/etc/yum.repos.d', type='path'),
             retries=dict(),
             s3_enabled=dict(type='bool'),
             skip_if_unavailable=dict(type='bool'),

@@ -50,7 +50,7 @@ options:
   state:
     description:
       - Should the VMs be present or absent from the rule.
-    required: true
+    required: false
     default: 'present'
     choices: [ 'present', 'absent' ]
   project:
@@ -101,19 +101,19 @@ EXAMPLES = '''
   pre_tasks:
     - name: Remove from load balancer
       local_action:
-      module: cs_loadbalancer_rule_member
-      name: balance_http
-      vm: "{{ ansible_hostname }}"
-      state: absent
+        module: cs_loadbalancer_rule_member
+        name: balance_http
+        vm: "{{ ansible_hostname }}"
+        state: absent
   tasks:
     # Perform update
   post_tasks:
     - name: Add to load balancer
       local_action:
-      module: cs_loadbalancer_rule_member
-      name: balance_http
-      vm: "{{ ansible_hostname }}"
-      state: present
+        module: cs_loadbalancer_rule_member
+        name: balance_http
+        vm: "{{ ansible_hostname }}"
+        state: present
 '''
 
 RETURN = '''
@@ -199,12 +199,6 @@ state:
   type: string
   sample: "Add"
 '''
-
-try:
-    from cs import CloudStack, CloudStackException, read_config
-    has_lib_cs = True
-except ImportError:
-    has_lib_cs = False
 
 # import cloudstack common
 from ansible.module_utils.cloudstack import *
@@ -343,9 +337,6 @@ def main():
         required_together=cs_required_together(),
         supports_check_mode=True
     )
-
-    if not has_lib_cs:
-        module.fail_json(msg="python library cs required: pip install cs")
 
     try:
         acs_lb_rule_member = AnsibleCloudStackLBRuleMember(module)

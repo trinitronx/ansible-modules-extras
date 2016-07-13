@@ -23,8 +23,8 @@
 function getFirewallRule ($fwsettings) {
     try {
 
-        #$output = Get-NetFirewallRule -name $($fwsettings.name);
-        $rawoutput=@(netsh advfirewall firewall show rule name="$($fwsettings.Name)")
+        #$output = Get-NetFirewallRule -name $($fwsettings.'Rule Name');
+        $rawoutput=@(netsh advfirewall firewall show rule name="$($fwsettings.'Rule Name')")
         if (!($rawoutput -eq 'No rules match the specified criteria.')){
             $rawoutput | Where {$_ -match '^([^:]+):\s*(\S.*)$'} | Foreach -Begin {
                     $FirstRun = $true;
@@ -51,10 +51,10 @@ function getFirewallRule ($fwsettings) {
         $msg=@();
         if ($($output|measure).count -gt 0) {
             $exists=$true;
-            $msg += @("The rule '" + $fwsettings.name + "' exists.");
+            $msg += @("The rule '" + $fwsettings.'Rule Name' + "' exists.");
             if ($($output|measure).count -gt 1) {
                 $multi=$true
-                $msg += @("The rule '" + $fwsettings.name + "' has multiple entries.");
+                $msg += @("The rule '" + $fwsettings.'Rule Name' + "' has multiple entries.");
                 ForEach($rule in $output.GetEnumerator()) {
                     ForEach($fwsetting in $fwsettings.GetEnumerator()) {
                         if ( $rule.$fwsetting -ne $fwsettings.$fwsetting) {
@@ -73,11 +73,7 @@ function getFirewallRule ($fwsettings) {
 
                         if (($fwsetting.Key -eq 'RemoteIP') -and ($output.$($fwsetting.Key) -eq ($fwsettings.$($fwsetting.Key)+'-'+$fwsettings.$($fwsetting.Key)))) {
                             $donothing=$false
-                        } elseif ((($fwsetting.Key -eq 'Name') -or ($fwsetting.Key -eq 'DisplayName')) -and ($output."Rule Name" -eq $fwsettings.$($fwsetting.Key))) {
-                            $donothing=$false
-                        } elseif (($fwsetting.Key -eq 'Profile') -and ($output."Profiles" -eq $fwsettings.$($fwsetting.Key))) {
-                            $donothing=$false
-                        } elseif (($fwsetting.Key -eq 'Enable') -and ($output."Enabled" -eq $fwsettings.$($fwsetting.Key))) {
+                        } elseif (($fwsetting.Key -eq 'DisplayName') -and ($output."Rule Name" -eq $fwsettings.$($fwsetting.Key))) {
                             $donothing=$false
                         } else {
                             $diff=$true;
@@ -117,11 +113,17 @@ function getFirewallRule ($fwsettings) {
 
 function createFireWallRule ($fwsettings) {
     $msg=@()
-    $execString="netsh advfirewall firewall add rule "
+    $execString="netsh advfirewall firewall add rule"
 
     ForEach ($fwsetting in $fwsettings.GetEnumerator()) {
         if ($fwsetting.key -eq 'Direction') {
             $key='dir'
+        } elseif ($fwsetting.key -eq 'Rule Name') {
+            $key='name'
+        } elseif ($fwsetting.key -eq 'Enabled') {
+            $key='enable'
+        } elseif ($fwsetting.key -eq 'Profiles') {
+            $key='profile'
         } else {
             $key=$($fwsetting.key).ToLower()
         };
@@ -159,7 +161,7 @@ function createFireWallRule ($fwsettings) {
 function removeFireWallRule ($fwsettings) {
     $msg=@()
     try {
-        $rawoutput=@(netsh advfirewall firewall delete rule name="$($fwsettings.name)")
+        $rawoutput=@(netsh advfirewall firewall delete rule name="$($fwsettings.'Rule Name')")
         $rawoutput | Where {$_ -match '^([^:]+):\s*(\S.*)$'} | Foreach -Begin {
                 $FirstRun = $true;
                 $HashProps = @{};
@@ -200,79 +202,54 @@ $fwsettings=@{}
 # Variabelise the arguments
 $params=Parse-Args $args;
 
-$enable=Get-Attr $params "enable" $null;
-$state=Get-Attr $params "state" "present";
-$name=Get-Attr $params "name" "";
-$direction=Get-Attr $params "direction" "";
-$force=Get-Attr $params "force" $false;
-$action=Get-Attr $params "action" "";
+$name = Get-AnsibleParam -obj $params -name "name" -failifempty $true
+$direction = Get-AnsibleParam -obj $params -name "direction" -failifempty $true -validateSet "in","out"
+$action = Get-AnsibleParam -obj $params -name "action" -failifempty $true -validateSet "allow","block","bypass"
+$program = Get-AnsibleParam -obj $params -name "program"
+$service = Get-AnsibleParam -obj $params -name "service" -default "any"
+$description = Get-AnsibleParam -obj $params -name "description"
+$enable = ConvertTo-Bool (Get-AnsibleParam -obj $params -name "enable" -default "true")
+$winprofile = Get-AnsibleParam -obj $params -name "profile" -default "any"
+$localip = Get-AnsibleParam -obj $params -name "localip" -default "any"
+$remoteip = Get-AnsibleParam -obj $params -name "remoteip" -default "any"
+$localport = Get-AnsibleParam -obj $params -name "localport" -default "any"
+$remoteport = Get-AnsibleParam -obj $params -name "remoteport" -default "any"
+$protocol = Get-AnsibleParam -obj $params -name "protocol" -default "any"
 
-$misArg = ''
+$state = Get-AnsibleParam -obj $params -name "state" -failifempty $true -validateSet "present","absent"
+$force = ConvertTo-Bool (Get-AnsibleParam -obj $params -name "force" -default "false")
+
 # Check the arguments
-if ($enable -ne $null) {
-    if ($enable -eq $true) {
-        $fwsettings.Add("Enable", "yes");
-    } elseif ($enable -eq $false) {
-        $fwsettings.Add("Enable", "no");
-    } else {
-        $misArg+="enable";
-        $msg+=@("for the enable parameter only yes and no is allowed");
-    };
+If ($enable -eq $true) {
+    $fwsettings.Add("Enabled", "yes");
+} Else {
+    $fwsettings.Add("Enabled", "no");
 };
 
-if (($state -ne "present") -And ($state -ne "absent")){
-    $misArg+="state";
-    $msg+=@("for the state parameter only present and absent is allowed");
-};
+$fwsettings.Add("Rule Name", $name)
+#$fwsettings.Add("displayname", $name)
 
-if ($name -eq ""){
-    $misArg+="Name";
-    $msg+=@("name is a required argument");
-} else {
-    $fwsettings.Add("Name", $name)
-    #$fwsettings.Add("displayname", $name)
-};
-if ((($direction.ToLower() -ne "In") -And ($direction.ToLower() -ne "Out")) -And ($state -eq "present")){
-    $misArg+="Direction";
-    $msg+=@("for the Direction parameter only the values 'In' and 'Out' are allowed");
-} else {
+$state = $state.ToString().ToLower()
+If ($state -eq "present"){
     $fwsettings.Add("Direction", $direction)
-};
-if ((($action.ToLower() -ne "allow") -And ($action.ToLower() -ne "block")) -And ($state -eq "present")){
-    $misArg+="Action";
-    $msg+=@("for the Action parameter only the values 'allow' and 'block' are allowed");
-} else {
     $fwsettings.Add("Action", $action)
 };
-$args=@(
-    "Description",
-    "LocalIP",
-    "RemoteIP",
-    "LocalPort",
-    "RemotePort",
-    "Program",
-    "Service",
-    "Protocol"
-)
 
-foreach ($arg in $args){
-    New-Variable -Name $arg -Value $(Get-Attr $params $arg "");
-    if ((Get-Variable -Name $arg -ValueOnly) -ne ""){
-        $fwsettings.Add($arg, $(Get-Variable -Name $arg -ValueOnly));
-    };
-};
+If ($description) {
+    $fwsettings.Add("Description", $description);
+}
 
-$winprofile=Get-Attr $params "profile" "current";
-$fwsettings.Add("profile", $winprofile)
+If ($program) {
+    $fwsettings.Add("Program", $program);
+}
 
-if ($misArg){
-    $result=New-Object psobject @{
-        changed=$false
-        failed=$true
-        msg=$msg
-    };
-    Exit-Json($result);
-};
+$fwsettings.Add("LocalIP", $localip);
+$fwsettings.Add("RemoteIP", $remoteip);
+$fwsettings.Add("LocalPort", $localport);
+$fwsettings.Add("RemotePort", $remoteport);
+$fwsettings.Add("Service", $service);
+$fwsettings.Add("Protocol", $protocol);
+$fwsettings.Add("Profiles", $winprofile)
 
 $output=@()
 $capture=getFirewallRule ($fwsettings);
@@ -293,7 +270,7 @@ if ($capture.failed -eq $true) {
 }
 
 
-switch ($state.ToLower()){
+switch ($state){
     "present" {
         if ($capture.exists -eq $false) {
             $capture=createFireWallRule($fwsettings);

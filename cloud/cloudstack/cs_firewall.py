@@ -210,12 +210,6 @@ network:
   sample: my_network
 '''
 
-try:
-    from cs import CloudStack, CloudStackException, read_config
-    has_lib_cs = True
-except ImportError:
-    has_lib_cs = False
-
 # import cloudstack common
 from ansible.module_utils.cloudstack import *
 
@@ -234,6 +228,7 @@ class AnsibleCloudStackFirewall(AnsibleCloudStack):
             'icmptype':     'icmp_type',
         }
         self.firewall_rule = None
+        self.network = None
 
 
     def get_firewall_rule(self):
@@ -309,30 +304,6 @@ class AnsibleCloudStackFirewall(AnsibleCloudStack):
         return cidr == rule['cidrlist']
 
 
-    def get_network(self, key=None, network=None):
-        if not network:
-            network = self.module.params.get('network')
-
-        if not network:
-            return None
-
-        args                = {}
-        args['account']     = self.get_account('name')
-        args['domainid']    = self.get_domain('id')
-        args['projectid']   = self.get_project('id')
-        args['zoneid']      = self.get_zone('id')
-
-        networks = self.cs.listNetworks(**args)
-        if not networks:
-            self.module.fail_json(msg="No networks available")
-
-        for n in networks['network']:
-            if network in [ n['displaytext'], n['name'], n['id'] ]:
-                return self._get_by_key(key, n)
-                break
-        self.module.fail_json(msg="Network '%s' not found" % network)
-
-
     def create_firewall_rule(self):
         firewall_rule = self.get_firewall_rule()
         if not firewall_rule:
@@ -360,7 +331,7 @@ class AnsibleCloudStackFirewall(AnsibleCloudStack):
 
                 poll_async = self.module.params.get('poll_async')
                 if poll_async:
-                     firewall_rule = self._poll_job(res, 'firewallrule')
+                     firewall_rule = self.poll_job(res, 'firewallrule')
         return firewall_rule
 
 
@@ -384,7 +355,7 @@ class AnsibleCloudStackFirewall(AnsibleCloudStack):
 
                 poll_async = self.module.params.get('poll_async')
                 if poll_async:
-                     res = self._poll_job(res, 'firewallrule')
+                     res = self.poll_job(res, 'firewallrule')
         return firewall_rule
 
 
@@ -392,8 +363,8 @@ class AnsibleCloudStackFirewall(AnsibleCloudStack):
         super(AnsibleCloudStackFirewall, self).get_result(firewall_rule)
         if firewall_rule:
             self.result['type'] = self.module.params.get('type')
-            if 'networkid' in firewall_rule:
-                self.result['network'] = self.get_network(key='displaytext', network=firewall_rule['networkid'])
+            if self.result['type'] == 'egress':
+                self.result['network'] = self.get_network(key='displaytext')
         return self.result
 
 
@@ -435,9 +406,6 @@ def main():
         ),
         supports_check_mode=True
     )
-
-    if not has_lib_cs:
-        module.fail_json(msg="python library cs required: pip install cs")
 
     try:
         acs_fw = AnsibleCloudStackFirewall(module)

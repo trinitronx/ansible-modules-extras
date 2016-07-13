@@ -234,7 +234,7 @@ def install_packages(module, pacman_path, state, packages, package_files):
         else:
             params = '-S %s' % package
 
-        cmd = "%s %s --noconfirm" % (pacman_path, params)
+        cmd = "%s %s --noconfirm --needed" % (pacman_path, params)
         rc, stdout, stderr = module.run_command(cmd, check_rc=False)
 
         if rc != 0:
@@ -300,9 +300,6 @@ def main():
         supports_check_mode = True)
 
     pacman_path = module.get_bin_path('pacman', True)
-
-    if not os.path.exists(pacman_path):
-        module.fail_json(msg="cannot find pacman, in path %s" % (pacman_path))
 
     p = module.params
 

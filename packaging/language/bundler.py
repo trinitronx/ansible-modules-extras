@@ -118,7 +118,7 @@ EXAMPLES='''
 - bundler: state=present exclude_groups=production
 
 # Only install gems from the default and production groups
-- bundler: state=present deployment=yes
+- bundler: state=present deployment_mode=yes
 
 # Installs gems using a Gemfile in another directory
 - bundler: state=present gemfile=../rails_project/Gemfile
@@ -140,15 +140,15 @@ def main():
         argument_spec=dict(
                 executable=dict(default=None, required=False),
                 state=dict(default='present', required=False, choices=['present', 'latest']),
-                chdir=dict(default=None, required=False),
+                chdir=dict(default=None, required=False, type='path'),
                 exclude_groups=dict(default=None, required=False, type='list'),
                 clean=dict(default=False, required=False, type='bool'),
-                gemfile=dict(default=None, required=False),
+                gemfile=dict(default=None, required=False, type='path'),
                 local=dict(default=False, required=False, type='bool'),
                 deployment_mode=dict(default=False, required=False, type='bool'),
                 user_install=dict(default=True, required=False, type='bool'),
-                gem_path=dict(default=None, required=False),
-                binstub_directory=dict(default=None, required=False),
+                gem_path=dict(default=None, required=False, type='path'),
+                binstub_directory=dict(default=None, required=False, type='path'),
                 extra_args=dict(default=None, required=False),
             ),
         supports_check_mode=True

@@ -18,10 +18,6 @@
 # You should have received a copy of the GNU General Public License
 # along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
 
-import re
-import os
-import tempfile
-
 DOCUMENTATION = """
 ---
 module: blockinfile
@@ -38,7 +34,7 @@ description:
     surrounded by customizable marker lines.
 notes:
   - This module supports check mode.
-  - When using 'with_' loops be aware that if you do not set a unique mark the block will be overwritten on each iteration.
+  - When using 'with_*' loops be aware that if you do not set a unique mark the block will be overwritten on each iteration.
 options:
   dest:
     aliases: [ name, destfile ]
@@ -138,17 +134,21 @@ EXAMPLES = r"""
     marker: "<!-- {mark} ANSIBLE MANAGED BLOCK -->"
     content: ""
 
-- name: insert/update "Match User" configuation block in /etc/ssh/sshd_config
+- name: Add mappings to /etc/hosts
   blockinfile:
     dest: /etc/hosts
     block: |
-      {{item.name}} {{item.ip}}
+      {{item.ip}} {{item.name}}
     marker: "# {mark} ANSIBLE MANAGED BLOCK {{item.name}}"
-    with_items:
-        - { name: host1, ip: 10.10.1.10 }
-        - { name: host2, ip: 10.10.1.11 }
-        - { name: host3, ip: 10.10.1.12 }
+  with_items:
+      - { name: host1, ip: 10.10.1.10 }
+      - { name: host2, ip: 10.10.1.11 }
+      - { name: host3, ip: 10.10.1.12 }
 """
+
+import re
+import os
+import tempfile
 
 
 def write_changes(module, contents, dest):
@@ -188,7 +188,7 @@ def check_file_attrs(module, changed, message):
 def main():
     module = AnsibleModule(
         argument_spec=dict(
-            dest=dict(required=True, aliases=['name', 'destfile']),
+            dest=dict(required=True, aliases=['name', 'destfile'], type='path'),
             state=dict(default='present', choices=['absent', 'present']),
             marker=dict(default='# {mark} ANSIBLE MANAGED BLOCK', type='str'),
             block=dict(default='', type='str', aliases=['content']),
@@ -204,7 +204,7 @@ def main():
     )
 
     params = module.params
-    dest = os.path.expanduser(params['dest'])
+    dest = params['dest']
     if module.boolean(params.get('follow', None)):
         dest = os.path.realpath(dest)
 
@@ -244,7 +244,7 @@ def main():
     marker1 = re.sub(r'{mark}', 'END', marker)
     if present and block:
         # Escape seqeuences like '\n' need to be handled in Ansible 1.x
-        if ANSIBLE_VERSION.startswith('1.'):
+        if module.ansible_version.startswith('1.'):
             block = re.sub('', block, '')
         blocklines = [marker0] + block.splitlines() + [marker1]
     else:
@@ -280,7 +280,9 @@ def main():
     lines[n0:n0] = blocklines
 
     if lines:
-        result = '\n'.join(lines)+'\n'
+        result = '\n'.join(lines)
+        if original and original.endswith('\n'):
+            result += '\n'
     else:
         result = ''
     if original == result:

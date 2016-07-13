@@ -171,6 +171,10 @@ except ImportError:
 
 import base64
 
+from ansible.module_utils.basic import *
+from ansible.module_utils.urls import *
+from ansible.module_utils.pycompat24 import get_exception
+
 def request(url, user, passwd, data=None, method=None):
     if data:
         data = json.dumps(data)
@@ -187,7 +191,7 @@ def request(url, user, passwd, data=None, method=None):
                                headers={'Content-Type':'application/json',
                                         'Authorization':"Basic %s" % auth})
 
-    if info['status'] not in (200, 204):
+    if info['status'] not in (200, 201, 204):
         module.fail_json(msg=info['msg'])
 
     body = response.read()
@@ -343,13 +347,13 @@ def main():
 
         ret = method(restbase, user, passwd, module.params)
 
-    except Exception, e:
+    except Exception:
+        e = get_exception()
         return module.fail_json(msg=e.message)
 
 
     module.exit_json(changed=True, meta=ret)
 
 
-from ansible.module_utils.basic import *
-from ansible.module_utils.urls import *
+
 main()

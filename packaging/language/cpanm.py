@@ -135,27 +135,27 @@ def _build_cmd_line(name, from_path, notest, locallib, mirror, mirror_only, inst
     # this code should use "%s" like everything else and just return early but not fixing all of it now.
     # don't copy stuff like this
     if from_path:
-        cmd = "{cpanm} {path}".format(cpanm=cpanm, path=from_path)
+        cmd = cpanm + " " + from_path
     else:
-        cmd = "{cpanm} {name}".format(cpanm=cpanm, name=name)
+        cmd = cpanm + " " + name
 
     if notest is True:
-        cmd = "{cmd} -n".format(cmd=cmd)
+        cmd = cmd + " -n"
 
     if locallib is not None:
-        cmd = "{cmd} -l {locallib}".format(cmd=cmd, locallib=locallib)
+        cmd = cmd + " -l " + locallib
 
     if mirror is not None:
-        cmd = "{cmd} --mirror {mirror}".format(cmd=cmd, mirror=mirror)
+        cmd = cmd + " --mirror " + mirror
 
     if mirror_only is True:
-        cmd = "{cmd} --mirror-only".format(cmd=cmd)
+        cmd = cmd + " --mirror-only"
 
     if installdeps is True:
-        cmd = "{cmd} --installdeps".format(cmd=cmd)
+        cmd = cmd + " --installdeps"
 
     if use_sudo is True:
-        cmd = "{cmd} --sudo".format(cmd=cmd)
+        cmd = cmd + " --sudo"
 
     return cmd
 
@@ -170,15 +170,15 @@ def _get_cpanm_path(module):
 def main():
     arg_spec = dict(
         name=dict(default=None, required=False, aliases=['pkg']),
-        from_path=dict(default=None, required=False),
+        from_path=dict(default=None, required=False, type='path'),
         notest=dict(default=False, type='bool'),
-        locallib=dict(default=None, required=False),
+        locallib=dict(default=None, required=False, type='path'),
         mirror=dict(default=None, required=False),
         mirror_only=dict(default=False, type='bool'),
         installdeps=dict(default=False, type='bool'),
         system_lib=dict(default=False, type='bool', aliases=['use_sudo']),
         version=dict(default=None, required=False),
-        executable=dict(required=False, type='str'),
+        executable=dict(required=False, type='path'),
     )
 
     module = AnsibleModule(
@@ -202,7 +202,6 @@ def main():
     installed = _is_package_installed(module, name, locallib, cpanm, version)
 
     if not installed:
-        out_cpanm = err_cpanm = ''
         cmd       = _build_cmd_line(name, from_path, notest, locallib, mirror, mirror_only, installdeps, cpanm, use_sudo)
 
         rc_cpanm, out_cpanm, err_cpanm = module.run_command(cmd, check_rc=False)
@@ -210,7 +209,7 @@ def main():
         if rc_cpanm != 0:
             module.fail_json(msg=err_cpanm, cmd=cmd)
 
-        if err_cpanm and 'is up to date' not in err_cpanm:
+        if (err_cpanm.find('is up to date') == -1 and out_cpanm.find('is up to date') == -1):
             changed = True
 
     module.exit_json(changed=changed, binary=cpanm, name=name)
