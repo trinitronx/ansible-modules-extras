@@ -17,7 +17,7 @@
 DOCUMENTATION = '''
 ---
 module: firehose
-version_added: "0.1"
+version_added: "2.1"
 short_description: create, delete, or modify an Amazon firehose instance
 description:
      - Creates, deletes, or modifies firehose instances. This module has a dependency on python-boto3.

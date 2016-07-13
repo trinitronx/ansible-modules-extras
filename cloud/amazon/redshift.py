@@ -227,6 +227,37 @@ EXAMPLES = '''
 
 '''
 
+RETURN = '''
+activeServicesCount:
+    description: how many services are active in this cluster
+    returned: 0 if a new cluster
+    type: int
+clusterArn:
+    description: the ARN of the cluster just created
+    type: string (ARN)
+    sample: arn:aws:ecs:us-west-2:172139249013:cluster/test-cluster-mfshcdok
+clusterName:
+    description: name of the cluster just created (should match the input argument)
+    type: string
+    sample: test-cluster-mfshcdok
+pendingTasksCount:
+    description: how many tasks are waiting to run in this cluster
+    returned: 0 if a new cluster
+    type: int
+registeredContainerInstancesCount:
+    description: how many container instances are available in this cluster
+    returned: 0 if a new cluster
+    type: int
+runningTasksCount:
+    description: how many tasks are running in this cluster
+    returned: 0 if a new cluster
+    type: int
+status:
+    description: the status of the new cluster
+    returned: ACTIVE
+    type: string
+'''
+
 # TODO: http://docs.ansible.com/ansible/developing_modules.html
 # https://boto3.readthedocs.org/en/latest/reference/services/redshift.html
 
