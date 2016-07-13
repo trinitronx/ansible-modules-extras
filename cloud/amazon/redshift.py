@@ -165,7 +165,7 @@ options:
 extends_documentation_fragment:
     - aws
     - ec2
-author: "Return Path (@ReturnPath)"
+author: "Return Path (@ReturnPath, @gc1code, @LesBarstow, @trinitronx)"
 '''
 
 # TODO: http://docs.ansible.com/ansible/developing_modules.html
