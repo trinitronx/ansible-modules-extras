@@ -52,12 +52,12 @@ options:
     description:
         description:
             - "A description for the subnet group."
-        required: true
+        required: false
         default: null
     subnets:
         description:
             - "An array of VPC subnet IDs. A maximum of 20 subnets can be modified in a single request."
-        required: true
+        required: false
         default: null
         aliases: ['subnet_ids']
     tags:
@@ -76,13 +76,147 @@ extends_documentation_fragment:
 author: "Return Path (@ReturnPath)"
 '''
 
+RETURN = '''
+changed:
+    description: A flag indicating if any change was made or not
+    returned: success
+    type: boolean
+    sample: true
+failed:
+    description: A flag indicating if any command resulted in an error ('facts' returns failed: true when no matching subnet groups are found)
+    returned: failure
+    type: boolean
+    sample: true
+invocation:
+    description: Invocation information for the Ansible module (args passed)
+    returned: success
+    type: dict
+    sample:
+        {
+          "invocation": {
+            "module_args": {
+              "subnets": [
+                "subnet-ab123456",
+                "subnet-cd456789",
+                "subnet-98765432",
+                "subnet-12345678"
+              ],
+              "command": "create",
+              "description": "Test RedShift Subnet Group",
+              "name": "test-redshift-subnet-group",
+              "tags": {
+                "environment": "prod",
+                "product": "foo",
+                "Name": "Test RedShift Subnet Group",
+                "location": "us-east-1"
+              }
+            }
+          }
+        }
+ansible_facts:
+    description: The subnet group information returned as ansible_facts
+    returned: success
+    type: complex dict
+    sample:
+    # Sample for 'create' command:
+        {
+          "ansible_facts": {
+            "cluster_subnet_groups": {
+              "ClusterSubnetGroups": [
+                {
+                  "Subnets": [
+                    {
+                      "SubnetStatus": "Active",
+                      "SubnetIdentifier": "subnet-ab123456",
+                      "SubnetAvailabilityZone": {
+                        "Name": "us-east-1b"
+                      }
+                    },
+                    {
+                      "SubnetStatus": "Active",
+                      "SubnetIdentifier": "subnet-cd456789",
+                      "SubnetAvailabilityZone": {
+                        "Name": "us-east-1e"
+                      }
+                    },
+                    {
+                      "SubnetStatus": "Active",
+                      "SubnetIdentifier": "subnet-98765432",
+                      "SubnetAvailabilityZone": {
+                        "Name": "us-east-1c"
+                      }
+                    },
+                    {
+                      "SubnetStatus": "Active",
+                      "SubnetIdentifier": "subnet-12345678",
+                      "SubnetAvailabilityZone": {
+                        "Name": "us-east-1d"
+                      }
+                    }
+                  ],
+                  "VpcId": "vpc-badcafe0",
+                  "Description": "Test RedShift Subnet Group",
+                  "Tags": [
+                    {
+                      "Value": "foo",
+                      "Key": "product"
+                    },
+                    {
+                      "Value": "Test RedShift Subnet Group",
+                      "Key": "Name"
+                    },
+                    {
+                      "Value": "us-east-1",
+                      "Key": "location"
+                    },
+                    {
+                      "Value": "prod",
+                      "Key": "environment"
+                    }
+                  ],
+                  "SubnetGroupStatus": "Complete",
+                  "ClusterSubnetGroupName": "test-redshift-subnet-group"
+                }
+              ],
+              "ResponseMetadata": {
+                "HTTPStatusCode": 200,
+                "RequestId": "1234abcd-cdef-ff00-00ff-f00dcafebeef"
+              }
+            }
+          }
+        }
+
+    # Sample for 'delete' command
+    {
+      "ec2_redshift_cluster_subnet_group": {
+        "ResponseMetadata": {
+          "HTTPStatusCode": 200,
+          "RequestId": "1234abcd-cdef-ff00-00ff-f00dcafebeef"
+        }
+      }
+    }
+'''
 # http://docs.ansible.com/ansible/developing_modules.html
 # https://boto3.readthedocs.org/en/latest/reference/services/redshift.html
 
 
+# def validate_parameters(required_params, valid_params, module):
+#     """ Validates module parameters """
+#     command = module.params.get('command')
+#     if required_params:
+#         for val in required_params:
+#             if not module.params.get(val):
+#                 module.fail_json(msg="Parameter %s required for %s command" % (val, command))
+
 def validate_parameters(required_params, valid_params, module):
-    """ Validates module parameters """
+    """
+    Check required & valid parameters for given command
+    """
     command = module.params.get('command')
+    for param in dict.keys(module.params):
+        print "module.params.get(%s): %s" % (param, module.params.get(param))
+        if module.params.get(param) and param != 'command' and param not in valid_params:
+            module.fail_json(msg="Parameter %s is not valid for %s command" % (param, command))
     if required_params:
         for val in required_params:
             if not module.params.get(val):
@@ -114,9 +248,30 @@ def _describe_cluster_subnet_group(module, conn):
     cluster_subnet_group_name = module.params.get('name')
     if not cluster_subnet_group_name:
         return None
+    max_records = module.params.get('max_records')
+    marker = module.params.get('marker')
+    tags = module.params.get('tags')
+
     params = dict(
         ClusterSubnetGroupName=cluster_subnet_group_name
         )
+
+    opt_params = dict(
+        MaxRecords=max_records,
+        Marker=marker,
+        TagKeys=_tags_to_keys(tags),
+        TagValues=_tags_to_values(tags)
+        )
+
+    # Don't send parameters without values
+    for key, val in opt_params.items():
+        if val is None:
+            print "Deleting %s -> %s" % (key, val)
+            del opt_params[key]
+
+    params.update(opt_params)
+    print "Updated params %s" % (params)
+
     cluster_subnet_group_facts = None
     try:
         cluster_subnet_group_facts = conn.describe_cluster_subnet_groups(**params)
@@ -133,6 +288,25 @@ def _describe_cluster_subnet_group(module, conn):
 
     return cluster_subnet_group_facts
 
+def _tags_to_dictlist(tags):
+    if not tags:
+        return None
+    dictlist = []
+    for key, value in tags.iteritems():
+        temp = {'Key': key, 'Value': value}
+        dictlist.append(temp)
+    return dictlist
+
+def _tags_to_keys(tags):
+    if not tags:
+        return None
+    return dict.keys(tags)
+
+def _tags_to_values(tags):
+    if not tags:
+        return None
+    return dict.values(tags)
+
 def get_resource_tags(vpc_conn, resource_id):
     """ Gets all tags """
     return dict((t.name, t.value) for t in
@@ -140,6 +314,7 @@ def get_resource_tags(vpc_conn, resource_id):
 
 
 def ensure_tags(vpc_conn, resource_id, tags, add_only, check_mode):
+    """ Ensure tags are updated / deleted if needed """
     try:
         cur_tags = get_resource_tags(vpc_conn, resource_id)
         if cur_tags == tags:
@@ -147,11 +322,11 @@ def ensure_tags(vpc_conn, resource_id, tags, add_only, check_mode):
 
         to_delete = dict((k, cur_tags[k]) for k in cur_tags if k not in tags)
         if to_delete and not add_only:
-            vpc_conn.delete_tags(resource_id, to_delete, dry_run=check_mode)
+            vpc_conn.delete_tags(resource_id, dict.keys(to_delete), dry_run=check_mode)
 
         to_add = dict((k, tags[k]) for k in tags if k not in cur_tags or cur_tags[k] != tags[k])
         if to_add:
-            vpc_conn.create_tags(resource_id, to_add, dry_run=check_mode)
+            vpc_conn.create_tags(resource_id, _tags_to_dictlist(to_add), dry_run=check_mode)
 
         latest_tags = get_resource_tags(vpc_conn, resource_id)
         return {'changed': True, 'tags': latest_tags}
@@ -199,18 +374,14 @@ def create_cluster_subnet_group(module, conn):
     cluster_subnet_group_name = module.params.get('name')
     description = module.params.get('description')
     subnet_ids = module.params.get('subnets')
-    tags = module.params.get('tags')
+    tags = _tags_to_dictlist(module.params.get('tags'))
 
     params = dict(
         ClusterSubnetGroupName=cluster_subnet_group_name,
         Description=description,
-        SubnetIds=subnet_ids,
-        Tags=tags
+        SubnetIds=subnet_ids
         )
     opt_params = dict(
-        ClusterSubnetGroupName=cluster_subnet_group_name,
-        Description=description,
-        SubnetIds=subnet_ids,
         Tags=tags
         )
 
@@ -338,9 +509,9 @@ def main():
     argument_spec = dict(
         command=dict(required=True, choices=['create', 'delete', 'facts']),
         name=dict(required=True, aliases=['cluster_subnet_group_name']),
-        description=dict(required=True),
-        subnets=dict(required=True, aliases=['subnet_ids']),
-        tags=dict(required=False, type='dict')
+        description=dict(required=False),
+        subnets=dict(required=False, type='list', aliases=['subnet_ids']),
+        tags=dict(type='dict', required=False),
     )
     module = AnsibleModule(argument_spec=argument_spec, supports_check_mode=True)
 
