@@ -1,4 +1,5 @@
 #!/usr/bin/python
+# pylint disable=c0111
 # This file is part of Ansible
 #
 # Ansible is free software: you can redistribute it and/or modify
@@ -188,22 +189,25 @@ except ImportError:
 
 def validate_parameters(required_params, valid_params, module):
     command = module.params.get('command')
+    for p in dict.keys(module.params):
+        if p not in valid_params:
+            module.fail_json(msg="Parameter %s is not valid for %s command" % (p, command))
     for v in required_params:
         if not module.params.get(v):
             module.fail_json(msg="Parameter %s required for %s command" % (v, command))
 
 def _describe_cluster(module, conn):
-    ClusterIdentifier = module.params.get('name')
-    if not ClusterIdentifier:
+    cluster_identifier = module.params.get('name')
+    if not cluster_identifier:
         return None
     params = dict(
-        ClusterIdentifier = ClusterIdentifier
+        ClusterIdentifier=cluster_identifier
         )
     cluster_facts = None
     try:
         cluster_facts = conn.describe_clusters(**params)
-    except botocore.exceptions.ClientError as e:
-        if 'ClusterNotFound' in e:
+    except botocore.exceptions.ClientError as err:
+        if 'ClusterNotFound' in err:
             return None
 
     if not cluster_facts:
@@ -217,12 +221,14 @@ def _describe_cluster(module, conn):
 
     # Convert datetime.datetime object to string - exit_json isn't doing so...
     if 'ClusterCreateTime' in cluster_facts:
-        dt=str(cluster_facts['ClusterCreateTime'])
+        # pylint: disable=c0103
+        dt = str(cluster_facts['ClusterCreateTime'])
         cluster_facts['ClusterCreateTime'] = dt
 
     return cluster_facts
-
+# pylint: disable=r0914,r0915,r0912,i0011
 def create_cluster(module, conn):
+    """ Create RedShift Cluster """
     required_params = [
         'name',
         'node_type',
@@ -267,7 +273,7 @@ def create_cluster(module, conn):
     if module.check_mode:
         module.exit_json(changed=True)
 
-    ClusterIdentifier = module.params.get('name')
+    cluster_identifier = module.params.get('name')
     NodeType = module.params.get('node_type')
     MasterUsername = module.params.get('username')
     MasterUserPassword = module.params.get('password')
@@ -296,27 +302,27 @@ def create_cluster(module, conn):
     KMSKeyId = module.params.get('kms_key_id')
 
     params = dict(
-        ClusterIdentifier = ClusterIdentifier,
-        NodeType = NodeType,
-        MasterUsername = MasterUsername,
-        MasterUserPassword = MasterUserPassword,
+        ClusterIdentifier=cluster_identifier,
+        NodeType=NodeType,
+        MasterUsername=MasterUsername,
+        MasterUserPassword=MasterUserPassword,
         )
     opt_params = dict(
-        DBName = DBName,
-        ClusterType = ClusterType,
-        ClusterSecurityGroups = ClusterSecurityGroups,
-        VpcSecurityGroupIds = VpcSecurityGroupIds,
-        ClusterSubnetGroupName = ClusterSubnetGroupName,
-        AvailabilityZone = AvailabilityZone,
-        ClusterParameterGroupName = ClusterParameterGroupName,
-        AutomatedSnapshotRetentionPeriod = AutomatedSnapshotRetentionPeriod,
-        Port = Port,
-        ClusterVersion = ClusterVersion,
-        AllowVersionUpgrade = AllowVersionUpgrade,
-        NumberOfNodes = NumberOfNodes,
-        PubliclyAccessible = PubliclyAccessible,
-        Encrypted = Encrypted,
-        Tags = Tags
+        DBName=DBName,
+        ClusterType=ClusterType,
+        ClusterSecurityGroups=ClusterSecurityGroups,
+        VpcSecurityGroupIds=VpcSecurityGroupIds,
+        ClusterSubnetGroupName=ClusterSubnetGroupName,
+        AvailabilityZone=AvailabilityZone,
+        ClusterParameterGroupName=ClusterParameterGroupName,
+        AutomatedSnapshotRetentionPeriod=AutomatedSnapshotRetentionPeriod,
+        Port=Port,
+        ClusterVersion=ClusterVersion,
+        AllowVersionUpgrade=AllowVersionUpgrade,
+        NumberOfNodes=NumberOfNodes,
+        PubliclyAccessible=PubliclyAccessible,
+        Encrypted=Encrypted,
+        Tags=Tags
         )
 
     # Don't send parameters without values
@@ -336,12 +342,12 @@ def create_cluster(module, conn):
         waiter = conn.get_waiter('cluster_available')
 
         try:
-            waiter.wait(ClusterIdentifier=ClusterIdentifier)
+            waiter.wait(ClusterIdentifier=cluster_identifier)
         except botocore.exceptions.WaiterError, e:
             module.fail_json(msg='cluster cannot be found')
 
     response = conn.describe_clusters(
-        ClusterIdentifier=ClusterIdentifier
+        ClusterIdentifier=cluster_identifier
     )
 
     # Convert datetime.datetime object to string - exit_json and running through
@@ -394,7 +400,7 @@ def delete_cluster(module, conn):
         ]
     validate_parameters(required_params, valid_params, module)
 
-    ClusterIdentifier = module.params.get('name')
+    cluster_identifier = module.params.get('name')
     SkipFinalClusterSnapshot = module.params.get('skip_final_cluster_snapshot')
     FinalClusterSnapshotIdentifier = module.params.get('FinalClusterSnapshotIdentifier')
 
@@ -407,7 +413,7 @@ def delete_cluster(module, conn):
         module.exit_json(changed=True)
 
     params = dict(
-        ClusterIdentifier = ClusterIdentifier,
+        ClusterIdentifier=cluster_identifier,
         )
 
     if SkipFinalClusterSnapshot is not None:
@@ -422,16 +428,21 @@ def delete_cluster(module, conn):
         waiter = conn.get_waiter('cluster_deleted')
 
         try:
-            waiter.wait(ClusterIdentifier=ClusterIdentifier)
-        except botocore.exceptions.WaiterError, e:
-            module.fail_json(msg='error waiting for cluster to be deleted')
+            waiter.wait(ClusterIdentifier=cluster_identifier)
+        except botocore.exceptions.WaiterError as err:
+            module.fail_json(msg='error waiting for cluster to be deleted: %s' % (err))
 
     module.exit_json(
-        changed=True
+        changed=True,
+        ansible_facts=dict(
+            ec2_response=json.loads(json.dumps(response))
+            )
         )
 
 
 def main():
+    """ module main function """
+    # pylint: disable=c0326,c0301
     argument_spec = dict(
         command               = dict(required=True, choices=['create', 'replicate', 'delete', 'facts', 'modify', 'promote', 'snapshot', 'reboot', 'restore']),
         name                  = dict(required=True, aliases=['cluster_identifier', 'cluster_id']),
@@ -473,13 +484,13 @@ def main():
         'create': create_cluster,
         'delete': delete_cluster,
         'facts': facts_cluster,
-#        'modify': modify_cluster,
+        # 'modify': modify_cluster
     }
 
     redshift_conn = boto3.client('redshift')
 
     invocations[module.params.get('command')](module, redshift_conn)
-
+# pylint disable=E0401
 from ansible.module_utils.basic import *
 from ansible.module_utils.ec2 import *
 
