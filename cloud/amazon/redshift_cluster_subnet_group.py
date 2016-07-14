@@ -1,4 +1,5 @@
 #!/usr/bin/python
+# pylint: disable=c0111
 # This file is part of Ansible
 #
 # Ansible is free software: you can redistribute it and/or modify
@@ -33,7 +34,7 @@ module: redshift_cluster_subnet_group
 short_description: add or delete redshift cluster subnet group
 description:
     - Creates and deletes redshift cluster subnet groups
-version_added: "2.0"
+version_added: "2.2"
 options:
     command:
         description:
@@ -73,119 +74,162 @@ options:
 extends_documentation_fragment:
     - aws
     - ec2
-author: "Return Path (@ReturnPath)"
+author: "Return Path (@ReturnPath, @trinitronx)"
+'''
+
+EXAMPLES = '''
+- name: Get Private Subnets for VPC
+      local_action:
+        module: ec2_vpc_subnet_facts
+        filters:
+          "tag:private": true
+      register: vpc_private_subnets
+      tags:
+        - vpc_private_subnets
+        - redshift_cluster_subnet_group
+
+- name: Prepare Redshift Cluster Subnet Group
+  local_action:
+    module: redshift_cluster_subnet_group
+    command: create
+    name: "{{ redshift_subnet_group.name }}"
+    description: "{{ redshift_subnet_group.description }}"
+    subnets: "{{ vpc_private_subnets.subnets | map(attribute='id') | list }}"
+    tags: "{{ redshift_subnet_group.tags }}"
+  register: redshift_subnet_group_create_result
+  tags:
+    - redshift_cluster_subnet_group
+
+- name: Get Redshift Cluster Subnet Group Facts
+  local_action:
+    module: redshift_cluster_subnet_group
+    command: facts
+    name: "{{ redshift_subnet_group.name }}"
+  register: redshift_subnet_group_facts
+  tags:
+    - redshift_cluster_subnet_group
+
+- name: Delete Redshift Cluster Subnet Group
+  local_action:
+    module: redshift_cluster_subnet_group
+    command: delete
+    name: "{{ redshift_subnet_group.name }}"
+  register: redshift_subnet_group_delete_result
+  tags:
+    - redshift_cluster_subnet_group
 '''
 
 RETURN = '''
 changed:
-    description: A flag indicating if any change was made or not
-    returned: success
-    type: boolean
-    sample: true
+  description: A flag indicating if any change was made or not
+  returned: success
+  type: boolean
+  sample: true
 failed:
-    description: A flag indicating if any command resulted in an error ('facts' returns failed: true when no matching subnet groups are found)
-    returned: failure
-    type: boolean
-    sample: true
+  description: A flag indicating if any command resulted in an error
+  returned: failure
+  type: boolean
+  sample: true
 invocation:
-    description: Invocation information for the Ansible module (args passed)
-    returned: success
-    type: dict
-    sample:
-        {
-          "invocation": {
-            "module_args": {
-              "subnets": [
-                "subnet-ab123456",
-                "subnet-cd456789",
-                "subnet-98765432",
-                "subnet-12345678"
-              ],
-              "command": "create",
-              "description": "Test RedShift Subnet Group",
-              "name": "test-redshift-subnet-group",
-              "tags": {
-                "environment": "prod",
-                "product": "foo",
-                "Name": "Test RedShift Subnet Group",
-                "location": "us-east-1"
-              }
-            }
+  description: Invocation information for the Ansible module (args passed)
+  returned: success
+  type: dict
+  sample: |
+    {
+      "invocation": {
+        "module_args": {
+          "subnets": [
+            "subnet-ab123456",
+            "subnet-cd456789",
+            "subnet-98765432",
+            "subnet-12345678"
+          ],
+          "command": "create",
+          "description": "Test RedShift Subnet Group",
+          "name": "test-redshift-subnet-group",
+          "tags": {
+            "environment": "prod",
+            "product": "foo",
+            "Name": "Test RedShift Subnet Group",
+            "location": "us-east-1"
           }
         }
+      }
+    }
+
 ansible_facts:
-    description: The subnet group information returned as ansible_facts
-    returned: success
-    type: complex dict
-    sample:
+  description: The subnet group information returned as ansible_facts
+  returned: success
+  type: complex dict
+  sample: |
     # Sample for 'create' command:
-        {
-          "ansible_facts": {
-            "cluster_subnet_groups": {
-              "ClusterSubnetGroups": [
+    {
+      "ansible_facts": {
+        "cluster_subnet_groups": {
+          "ClusterSubnetGroups": [
+            {
+              "Subnets": [
                 {
-                  "Subnets": [
-                    {
-                      "SubnetStatus": "Active",
-                      "SubnetIdentifier": "subnet-ab123456",
-                      "SubnetAvailabilityZone": {
-                        "Name": "us-east-1b"
-                      }
-                    },
-                    {
-                      "SubnetStatus": "Active",
-                      "SubnetIdentifier": "subnet-cd456789",
-                      "SubnetAvailabilityZone": {
-                        "Name": "us-east-1e"
-                      }
-                    },
-                    {
-                      "SubnetStatus": "Active",
-                      "SubnetIdentifier": "subnet-98765432",
-                      "SubnetAvailabilityZone": {
-                        "Name": "us-east-1c"
-                      }
-                    },
-                    {
-                      "SubnetStatus": "Active",
-                      "SubnetIdentifier": "subnet-12345678",
-                      "SubnetAvailabilityZone": {
-                        "Name": "us-east-1d"
-                      }
-                    }
-                  ],
-                  "VpcId": "vpc-badcafe0",
-                  "Description": "Test RedShift Subnet Group",
-                  "Tags": [
-                    {
-                      "Value": "foo",
-                      "Key": "product"
-                    },
-                    {
-                      "Value": "Test RedShift Subnet Group",
-                      "Key": "Name"
-                    },
-                    {
-                      "Value": "us-east-1",
-                      "Key": "location"
-                    },
-                    {
-                      "Value": "prod",
-                      "Key": "environment"
-                    }
-                  ],
-                  "SubnetGroupStatus": "Complete",
-                  "ClusterSubnetGroupName": "test-redshift-subnet-group"
+                  "SubnetStatus": "Active",
+                  "SubnetIdentifier": "subnet-ab123456",
+                  "SubnetAvailabilityZone": {
+                    "Name": "us-east-1b"
+                  }
+                },
+                {
+                  "SubnetStatus": "Active",
+                  "SubnetIdentifier": "subnet-cd456789",
+                  "SubnetAvailabilityZone": {
+                    "Name": "us-east-1e"
+                  }
+                },
+                {
+                  "SubnetStatus": "Active",
+                  "SubnetIdentifier": "subnet-98765432",
+                  "SubnetAvailabilityZone": {
+                    "Name": "us-east-1c"
+                  }
+                },
+                {
+                  "SubnetStatus": "Active",
+                  "SubnetIdentifier": "subnet-12345678",
+                  "SubnetAvailabilityZone": {
+                    "Name": "us-east-1d"
+                  }
                 }
               ],
-              "ResponseMetadata": {
-                "HTTPStatusCode": 200,
-                "RequestId": "1234abcd-cdef-ff00-00ff-f00dcafebeef"
-              }
+              "VpcId": "vpc-badcafe0",
+              "Description": "Test RedShift Subnet Group",
+              "Tags": [
+                {
+                  "Value": "foo",
+                  "Key": "product"
+                },
+                {
+                  "Value": "Test RedShift Subnet Group",
+                  "Key": "Name"
+                },
+                {
+                  "Value": "us-east-1",
+                  "Key": "location"
+                },
+                {
+                  "Value": "prod",
+                  "Key": "environment"
+                }
+              ],
+              "SubnetGroupStatus": "Complete",
+              "ClusterSubnetGroupName": "test-redshift-subnet-group"
             }
+          ],
+          "ResponseMetadata": {
+            "HTTPStatusCode": 200,
+            "RequestId": "1234abcd-cdef-ff00-00ff-f00dcafebeef"
           }
         }
-
+      }
+    }
+    
     # Sample for 'delete' command
     {
       "ec2_redshift_cluster_subnet_group": {
@@ -214,7 +258,6 @@ def validate_parameters(required_params, valid_params, module):
     """
     command = module.params.get('command')
     for param in dict.keys(module.params):
-        print "module.params.get(%s): %s" % (param, module.params.get(param))
         if module.params.get(param) and param != 'command' and param not in valid_params:
             module.fail_json(msg="Parameter %s is not valid for %s command" % (param, command))
     if required_params:
@@ -266,16 +309,14 @@ def _describe_cluster_subnet_group(module, conn):
     # Don't send parameters without values
     for key, val in opt_params.items():
         if val is None:
-            print "Deleting %s -> %s" % (key, val)
             del opt_params[key]
 
     params.update(opt_params)
-    print "Updated params %s" % (params)
 
     cluster_subnet_group_facts = None
     try:
         cluster_subnet_group_facts = conn.describe_cluster_subnet_groups(**params)
-    except botocore.exceptions.ClientError, error:
+    except botocore.exceptions.ClientError as error:
         if 'ClusterNotFound' in error:
             return None
 
@@ -330,9 +371,9 @@ def ensure_tags(vpc_conn, resource_id, tags, add_only, check_mode):
 
         latest_tags = get_resource_tags(vpc_conn, resource_id)
         return {'changed': True, 'tags': latest_tags}
-    except EC2ResponseError as e:
+    except EC2ResponseError as err:
         raise AnsibleTagCreationException(
-            'Unable to update tags for {0}, error: {1}'.format(resource_id, e))
+            'Unable to update tags for {0}, error: {1}'.format(resource_id, err))
 
 # pylint: disable=r0914
 def create_cluster_subnet_group(module, conn):
@@ -438,7 +479,7 @@ def create_cluster_subnet_group(module, conn):
 
 def facts_cluster_subnet_group(module, conn):
     """
-    Returns one or more cluster subnet group objects, 
+    Returns one or more cluster subnet group objects,
     which contain metadata about your cluster subnet groups.
     By default, this operation returns information about all cluster subnet groups
     that are defined in you AWS account.
