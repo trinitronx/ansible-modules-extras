@@ -191,7 +191,7 @@ options:
         default: ''
     skip_final_cluster_snapshot:
         description:
-            - During deletion: if false, save a final snapshot of the cluster to final_cluster_snapshot_id before deleting.
+            - "During deletion: if false, save a final snapshot of the cluster to final_cluster_snapshot_id before deleting."
             - final_cluster_snapshot_id is required unless skip_final_cluster_snapshot is true
         required: true
         default: false
