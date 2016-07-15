@@ -191,7 +191,7 @@ options:
         default: ''
     skip_final_cluster_snapshot:
         description:
-            - During deletion: if false, save a final snapshot of the cluster to final_cluster_snapshot_id before deleting.
+            - "During deletion: if false, save a final snapshot of the cluster to final_cluster_snapshot_id before deleting."
             - final_cluster_snapshot_id is required unless skip_final_cluster_snapshot is true
         required: true
         default: false
@@ -404,7 +404,7 @@ ansible_facts:
                   "ParameterGroupName": "default.redshift-1.0"
                 }
               ],
-              "ClusterPublicKey": "ssh-rsa AAAABBCCCCDDDDEEEEFFFFGGGGGHHHHHHHIIIIIIIJJJJJJ+K+LLLL+MMMM/NNNN/OOO+/PPPP Amazon-Redshift\n",
+              "ClusterPublicKey": "ssh-rsa AAAABBCCCCDDDDEEEEFFFFGGGGGHHHHHHHIIIIIIIJJJJJJ+K+LLLL+MMMM/NNNN/OOO+/PPPP Amazon-Redshift\\n",
               "ClusterRevisionNumber": "1069",
               "ClusterSecurityGroups": [],
               "ClusterStatus": "available",
